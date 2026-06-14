@@ -124,7 +124,7 @@ class StreamData {
     void setSklLogger(SSLKeyLogger *logger)
     {
         if (stream)
-            stream->setSklfile(logger);
+            stream->getEndpoint()->setSklfile(logger);
     }
     void setSensor(msg_sensor *sensor)
     {
@@ -165,17 +165,21 @@ class StreamData {
     void setLocalIP(AddressType type)
     {
         if (stream)
-            stream->setLocalIP(type);
+            stream->getEndpoint()->setLocalIP(type);
     }
     void getSdpOffer(int media_idx, SdpMedia &m)
     {
-        if (stream)
-            stream->getSdpOffer(media_idx, m);
+        if (stream) {
+            stream->forceSdpMediaIndex(media_idx);
+            stream->getSdpOffer(m);
+        }
     }
     void getSdpAnswer(int media_idx, const SdpMedia &offer, SdpMedia &answer)
     {
-        if (stream)
-            stream->getSdpAnswer(media_idx, offer, answer);
+        if (stream) {
+            stream->forceSdpMediaIndex(media_idx);
+            stream->getSdpAnswer(offer, answer);
+        }
     }
     void replaceAudioMediaParameters(SdpMedia &m, unsigned int idx, AddressType type)
     {
@@ -204,7 +208,7 @@ class StreamData {
 
     /** we want to preserve existing streams (relay streams already set, ports
      * already used in outgoing SDP */
-    void changeSession(AmB2BSession *session);
+    void changeSession(AmB2BSession *session, bool audio);
 
     /** Set relay stream and payload IDs to be relayed.
      *

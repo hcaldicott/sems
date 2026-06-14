@@ -17,6 +17,7 @@ using std::vector;
 
 class AmRtpConnection;
 class AmRtpStream;
+class AmMediaEndpoint;
 
 struct IcePairStat {
     struct sockaddr_storage laddr;
@@ -62,7 +63,7 @@ class IceContext {
     enum State { ICE_INITIAL = 0, ICE_CONNECTIVITY_CHECK, ICE_NOMINATIONS, ICE_KEEP_ALIVE, ICE_STATE_MAX };
 
   private:
-    AmRtpStream                               *stream;
+    AmMediaEndpoint                           *endpoint;
     State                                      state;
     int                                        type;
     AmMutex                                    pairs_mut;
@@ -91,14 +92,14 @@ class IceContext {
     void              fillStat(IceContextStat &out);
 
   public:
-    IceContext(AmRtpStream *stream, int type);
+    IceContext(AmMediaEndpoint *endpoint, int type);
     ~IceContext();
 
     sockaddr_storage *getAllowedIceAddr(int family);
     AmMediaTransport *getCurrentTransport();
 
-    int          getType() { return type; }
-    AmRtpStream *getStream() { return stream; }
+    int              getType() { return type; }
+    AmMediaEndpoint *getEndpoint() { return endpoint; }
 
     // functions for AmRtpStream and AmMediaTransport
     void initContext();

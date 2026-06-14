@@ -39,6 +39,7 @@
 #include "sip/msg_sensor.h"
 #include "sip/ssl_settings.h"
 #include "media/AmMediaTransport.h"
+#include "media/AmMediaEndpoint.h"
 #include "ObjectsCounter.h"
 
 #include <netinet/in.h>
@@ -64,61 +65,14 @@ using std::vector;
 #define RTP_BUFFER_SIZE -5 // buffer overrun
 #define RTP_UNKNOWN_PL  -6 // unknown payload
 
-#define RTP_STREAM_BUF_PACKETS_COUNT 32
-
 /**
  * Forward declarations
  */
 class AmAudio;
 class msg_logger;
+class AmMediaEndpoint;
 struct SdpPayload;
 struct amci_payload_t;
-
-/**
- * This provides the memory for the receive buffer.
- */
-template <int packets_count> class PacketMem {
-#define PacketMemUsedClearMask (~(ULONG_MAX >> (BITS_PER_LONG - packets_count)))
-    AmRtpPacket   packets[packets_count];
-    unsigned long used; // used packets bitmask
-  public:
-    PacketMem()
-        : used(PacketMemUsedClearMask)
-    {
-    }
-    AmRtpPacket *newPacket()
-    {
-        if (!(~(used)))
-            return nullptr;
-
-        for (int i = 0; i < packets_count; i++) {
-            if (!test_and_set_bit(i, &used)) {
-                return &packets[i];
-            }
-        }
-
-        return nullptr;
-    }
-    void freePacket(AmRtpPacket *p)
-    {
-        if (!p)
-            return;
-
-        int idx = p - packets;
-
-        assert(idx >= 0);
-        assert(idx < packets_count);
-
-        clear_bit(idx, &used);
-        __sync_synchronize();
-    }
-    void clear()
-    {
-        used = PacketMemUsedClearMask;
-        __sync_synchronize();
-    }
-    void debug() { DBG("used: 0x%lx", used); }
-};
 
 /** helper class for assigning boolean floag to a payload ID
  * it is used to check if the payload should be relayed or not */
@@ -205,16 +159,29 @@ struct Payload {
  * Rtp stream high level interface.
  */
 class AmRtpStream : public AmObject
-#ifdef WITH_ZRTP
-    ,
-                    public ZrtpContextSubscriber
-#endif /*WITH_ZRTP*/
 #ifdef OBJECTS_COUNTER
     ,
                     ObjCounter(AmRtpStream)
 #endif
 {
+    friend class AmMediaEndpoint;
+
   protected:
+    /** transport endpoint: owns transports + ICE/DTLS/ZRTP contexts + inbound receive/demux.
+     *  Lazily created on first getEndpoint() via the virtual createEndpoint() factory, so subclasses
+     *  (e.g. RtspAudio) supply their own endpoint type regardless of where the stream is constructed.
+     *  Non-owning: ownership is handed to the session pool on creation (a session-less mock owns its own). */
+    mutable AmMediaEndpoint *endpoint;
+
+    /** non-owning view of the endpoint staged by an in-flight media transaction (new port);
+     *  while set, SDP is built from it while @endpoint keeps serving media until commit. */
+    AmMediaEndpoint *pending_endpoint;
+
+    virtual AmMediaEndpoint *createEndpoint() const
+    {
+        return new AmMediaEndpoint(const_cast<AmRtpStream *>(this), session, l_if);
+    }
+
     // payload collection
     typedef std::vector<Payload> PayloadCollection;
 
@@ -228,17 +195,12 @@ class AmRtpStream : public AmObject
 
     RtcpBidirectionalStat rtp_stats;
     unsigned long long    last_send_rtcp_report_ts;
-    unsigned long long    dropped_packets_count;
 
     std::map<uint32_t, std::vector<int>> incoming_payloads;
     std::map<uint32_t, std::vector<int>> incoming_relayed_payloads;
     std::vector<int>                     outgoing_payloads;
     std::vector<int>                     outgoing_relayed_payloads;
-    unsigned long                        incoming_bytes;
     unsigned long                        outgoing_bytes;
-    unsigned long                        rtp_parse_errors;
-    unsigned long                        out_of_buffer_errors;
-    unsigned long                        srtp_unprotect_errors;
 
     int           last_not_supported_rx_payload;
     int           last_not_supported_tx_payload;
@@ -264,6 +226,13 @@ class AmRtpStream : public AmObject
 
     /** SDP media slot number (n-th media line) */
     int sdp_media_index;
+
+    /** RFC 3264: m= line disabled by setting its port to zero (kept as a placeholder, no media) */
+    bool disabled;
+
+    /** negotiated m= transport, cached (set by setTransport) so it can be reported without touching
+     *  the endpoint (e.g. for a disabled stream's port-0 m= line); type is derived from it */
+    TransProt transport;
 
     /** RTP sequence number */
     unsigned int sequence;
@@ -296,8 +265,6 @@ class AmRtpStream : public AmObject
     unsigned int r_ssrc;
     bool         r_ssrc_i;
 
-    TransProt transport;
-
     /** media bundling (RFC 9143) enabled for this stream*/
     bool bundle_enabled;
     /** negotiated mid of this stream and the MID RTP header extension id (0 = not negotiated);
@@ -305,44 +272,11 @@ class AmRtpStream : public AmObject
     string bundle_mid;
     int    bundle_mid_ext_id;
 
-    /** ice attributes*/
-    bool     is_ice_stream;
-    string   ice_pwd;
-    string   ice_ufrag;
-    string   ice_remote_pwd;
-    string   ice_remote_ufrag;
-    bool     ice_controlled;
-    uint64_t ice_tiebreaker;
-
-    unique_ptr<IceContext>  ice_context[MAX_TRANSPORT_TYPE];
-    unique_ptr<DtlsContext> dtls_context[MAX_TRANSPORT_TYPE];
-    SSLKeyLogger           *ssl_key_log_file;
-#ifdef WITH_ZRTP
-    zrtpContext zrtp_context;
-#endif /*WITH_ZRTP*/
-
-    vector<AmMediaTransport *> ip4_transports;
-    vector<AmMediaTransport *> ip6_transports;
-    AmMediaTransport          *cur_rtp_trans;
-    AmMediaTransport          *cur_rtcp_trans;
-    AmMediaTransport          *cur_udptl_trans;
-
-    AmMediaTransport *getCurUdptlTrans() const
-    {
-        return cur_udptl_trans ? cur_udptl_trans : cur_rtp_trans;
-    }
-
     /** marker flag */
     bool begin_talk;
 
     /** do check rtp timeout */
     bool monitor_rtp_timeout;
-
-    /** MediaEstablishedEvent already posted; re-armed by clearEstablished() on ICE restart */
-    bool media_established_fired;
-
-    /** wall-clock anchor for measuring media setup latency reported with MediaEstablishedEvent */
-    std::chrono::steady_clock::time_point media_setup_start;
 
     /** Payload type for telephone event */
     unique_ptr<const SdpPayload> remote_telephone_event_pt;
@@ -359,10 +293,9 @@ class AmRtpStream : public AmObject
     /**
      * Receive buffer, queue and mutex
      */
-    PacketMem<RTP_STREAM_BUF_PACKETS_COUNT> mem;
-    ReceiveBuffer                           receive_buf;
-    RtpEventQueue                           rtp_ev_qu;
-    AmMutex                                 receive_mut;
+    ReceiveBuffer receive_buf;
+    RtpEventQueue rtp_ev_qu;
+    AmMutex       receive_mut;
 
     /** precomputed or forced stream mute state */
     bool mute;
@@ -393,10 +326,6 @@ class AmRtpStream : public AmObject
 
     /** relay CN payload type  */
     bool force_relay_cn;
-
-    /** symmetric rtp switching flags*/
-    bool symmetric_rtp_endless;
-    bool symmetric_rtp_enable;
 
     /** send initial rtp packet */
     bool rtp_ping;
@@ -429,12 +358,6 @@ class AmRtpStream : public AmObject
     /** set to true if any data received */
     bool active;
 
-    /* RTP and RTCP multiplexing mode*/
-    bool multiplexing;
-
-    /* reusing media transport for udptl packets(fax stream) */
-    bool reuse_media_trans;
-
     RtcpReportsPreparedData rtcp_reports;
 
     /**
@@ -444,16 +367,6 @@ class AmRtpStream : public AmObject
     int getDefaultPT();
 
     void payloads_id2str(const vector<int> i, vector<string> &s);
-
-    void calcRtpPorts(AmMediaTransport * tr_rtp, AmMediaTransport * tr_rtcp);
-
-    virtual void initIP4Transport();
-    virtual void initIP6Transport();
-    void         setCurrentTransport(AmMediaTransport * transport);
-    void         onSrtpKeysAvailable(int transport_type, uint16_t srtp_profile, const string &local_key,
-                                     const string &remote_key);
-    void         iterateTransports(std::function<void(AmMediaTransport * transport)> iterator);
-    void         initIce();
 
   public:
     /** should we receive RFC-2833-style DTMF even when receiving is disabled? */
@@ -472,6 +385,35 @@ class AmRtpStream : public AmObject
     void rtcp_send_report(unsigned int user_ts);
 
   public:
+    // --- transport endpoint (1:1; owned by the session pool) ---
+    // getEndpoint: the active endpoint, lazily created on first access (single creation point for every
+    //   stream/subclass) and handed to the session pool on creation.
+    // sdpEndpoint: the endpoint SDP is built from - the one staged
+    //   by an in-flight transaction, else the active one.
+    // createDetachedEndpoint/setPendingEndpoint/clearPendingEndpoint: stage a reconfig
+    //   for AmMediaTransaction (the staged endpoint is owned by the transaction until commit adopts it);
+    // setEndpoint: re-points to a new endpoint on commit (does not free the old - the pool keeps it).
+    // releaseEndpoint: hands off the live endpoint (it stays in the pool).
+    AmMediaEndpoint *getEndpoint() const;
+    AmMediaEndpoint *sdpEndpoint() const
+    {
+        return pending_endpoint ? pending_endpoint : getEndpoint();
+    }
+    AmMediaEndpoint *createDetachedEndpoint() const
+    {
+        return createEndpoint();
+    }
+    void setPendingEndpoint(AmMediaEndpoint * ep)
+    {
+        pending_endpoint = ep;
+    }
+    void clearPendingEndpoint()
+    {
+        pending_endpoint = nullptr;
+    }
+    void             setEndpoint(AmMediaEndpoint * ep);
+    AmMediaEndpoint *releaseEndpoint();
+
     /**
      * Set whether RTP stream will receive RTP packets internally (received packets will be dropped or not).
      */
@@ -488,48 +430,12 @@ class AmRtpStream : public AmObject
     void resume();
 
     /** Allocates resources for future use of RTP. */
-    AmRtpStream(AmSession * _s, int _if);
+    AmRtpStream(AmSession * _s, int _if, int media_index);
 
     /** Stops the stream and frees all resources. */
     virtual ~AmRtpStream();
 
-    void onErrorRtpTransport(AmStreamConnection::ConnectionError err, const string &error, AmMediaTransport *transport);
-    void onRtpPacket(AmRtpPacket * packet, AmMediaTransport * transport);
-    void onRtcpPacket(AmRtpPacket * packet, AmMediaTransport * transport);
-    void onUdptlPacket(AmRtpPacket * packet, AmMediaTransport * transport);
-    void onRawPacket(AmRtpPacket * packet, AmMediaTransport * transport);
-
-    void onLeavePassiveMode();
-    void onRtpEndpointLearned();
-    void onIceConnectivityFailed();
-
-    virtual void onTransportEstablished();
-    void         clearEstablished();
-    void         resetMediaSetupTimer();
-    bool         isIceAllowNoCandidates();
-    bool         isSymmetricRtpEnable();
-
-    void allowStunConnection(AmMediaTransport * transport, sockaddr_storage * remote_addr, int priority);
-    void allowStunPair(AmMediaTransport * transport, sockaddr_storage * remote_addr);
-    void dtlsSessionActivated(AmMediaTransport * transport, uint16_t srtp_profile, const vector<uint8_t> &local_key,
-                              const vector<uint8_t> &remote_key);
-
-    void          onCloseDtlsSession(uint8_t transport_type);
-    void          onIceRoleConflict();
-    DtlsContext  *getDtlsContext(uint8_t transport_type);
-    IceContext   *getIceContext(uint8_t transport_type);
-    SSLKeyLogger *getSklfile()
-    {
-        return ssl_key_log_file;
-    }
-    void setSklfile(SSLKeyLogger * logger);
-    void initDtls(uint8_t transport_type, bool client);
-
     void update_sender_stats(const AmRtpPacket &p);
-    void inc_drop_pack()
-    {
-        dropped_packets_count++;
-    }
 
     bool process_dtmf_queue(unsigned int ts);
 
@@ -545,27 +451,14 @@ class AmRtpStream : public AmObject
 
     int receive(unsigned char *buffer, unsigned int size);
 
-    /** create and free an RTP packet*/
-    AmRtpPacket *createRtpPacket();
-    void         freeRtpPacket(AmRtpPacket * packet);
     /** Insert an RTP packet to the buffer queue */
     void bufferPacket(AmRtpPacket * p);
     /* Get next packet from the buffer queue */
     int nextPacket(AmRtpPacket * &p);
     /** Try to reuse oldest buffered packet for newly coming packet */
     AmRtpPacket *reuseBufferedPacket();
-
-#ifdef WITH_ZRTP
-    zrtpContext *getZrtpContext()
-    {
-        return &zrtp_context;
-    }
-    void initZrtp();
-    void startZrtp();
-    void zrtpSessionActivated(srtp_profile_t srtp_profile, const vector<uint8_t> &local_key,
-                              const vector<uint8_t> &remote_key);
-    int  send_zrtp(unsigned char *buffer, unsigned int size);
-#endif /*WITH_ZRTP*/
+    /** free buffered/queued packets via @owner's pool (the endpoint that received them) */
+    void flushReceiveBuffer(AmMediaEndpoint * owner);
 
     void processRtcpTimers(unsigned long long system_ts, unsigned int user_ts);
 
@@ -575,62 +468,16 @@ class AmRtpStream : public AmObject
         return 0;
     }
 
-    virtual void   setLocalIP(AddressType addrtype = AT_NONE);
-    virtual string getLocalAddress();
-    virtual string getLocalIP();
-
-    /**
-     * Initializes with a new random local port if 'p' is 0,
-     * else binds the given port, and sets own attributes properly.
-     */
-    virtual int getLocalPort();
-    virtual int getLocalRtcpPort();
-
-    /**
-     * Gets remote RTP port.
-     * @return remote RTP port.
-     */
-    virtual int getRPort(int type);
-
-    /**
-     * Gets remote host IP.
-     * @return remote host IP.
-     */
+    // act on an existing endpoint only (no lazy creation): called on teardown, stream replacement,
+    // disabled/port-0 m-lines and plain reporting, where materializing a transport would be wrong;
+    // a no-op (or default) without an endpoint.
+    void           stopReceiving();   // -> endpoint (remove from RTP receiver)
+    void           resumeReceiving(); // -> endpoint (re-insert into RTP receiver)
+    void           setLogger(msg_logger * _logger);
+    void           setSensor(msg_sensor * _sensor);
+    virtual int    getRPort(int type);
     virtual string getRHost(int type);
-
-    /**
-     * Set remote IP & port.
-     */
-    void setRAddr(const string &addr, unsigned short port);
-
-    /** Symmetric RTP & RTCP: passive mode ? */
-    void setPassiveMode(bool p);
-    bool getPassiveMode()
-    {
-        return cur_rtp_trans ? cur_rtp_trans->getPassiveMode() : false;
-    }
-
-    /** Set using transport */
-    void setTransport(TransProt trans);
-
-    /** Set using ice protocol */
-    void useIce();
-    bool isIceStream();
-    bool isIceControlled();
-    bool isIceNominateFirstValid();
-
-    uint64_t getIceTieBreaker();
-
-    /** Set using multiplexing for rtcp */
-    virtual void setMultiplexing(bool multiplex);
-
-    void setReuseMediaPort(bool reuse_media);
-    void addAdditionTransport(AddressType type = AT_NONE);
-
-    MediaType getMediaType() const
-    {
-        return (transport == TP_UDPTL || transport == TP_UDPTLSUDPTL) ? MT_IMAGE : MT_AUDIO;
-    }
+    void           setRAddr(const string &addr, unsigned short port);
 
     unsigned int get_ssrc()
     {
@@ -655,6 +502,28 @@ class AmRtpStream : public AmObject
         sdp_media_index   = idx;
         offer_answer_used = false;
     }
+
+    // RFC 3264: a disabled m= line keeps its slot at port 0 and carries no media
+    void setDisabled(bool d)
+    {
+        disabled = d;
+    }
+    bool isDisabled() const
+    {
+        return disabled;
+    }
+
+    /** Set using transport */
+    void      setTransport(TransProt trans);
+    TransProt getTransport() const
+    {
+        return transport;
+    }
+    MediaType getMediaType() const
+    {
+        return (transport == TP_UDPTL || transport == TP_UDPTLSUDPTL) ? MT_IMAGE : MT_AUDIO;
+    }
+
     int getPayloadType()
     {
         return payload;
@@ -716,33 +585,23 @@ class AmRtpStream : public AmObject
     };
     void getMediaStats(struct MediaStats & s);
 
-    unsigned long getRcvdBytes()
-    {
-        return incoming_bytes;
-    }
     unsigned long getSentBytes()
     {
         return outgoing_bytes;
     }
-    void updateRcvdBytes(unsigned long bytes)
-    {
-        incoming_bytes += bytes;
-    }
 
     /**
      * Generate an SDP offer based on the stream capabilities.
-     * @param index index of the SDP media within the SDP.
      * @param offer the local offer to be filled/completed.
      */
-    virtual void getSdpOffer(unsigned int index, SdpMedia &offer);
+    virtual void getSdpOffer(SdpMedia & offer);
 
     /**
      * Generate an answer for the given SDP media based on the stream capabilities.
-     * @param index index of the SDP media within the SDP.
      * @param offer the remote offer.
      * @param answer the local answer to be filled/completed.
      */
-    virtual void getSdpAnswer(unsigned int index, const SdpMedia &offer, SdpMedia &answer);
+    virtual void getSdpAnswer(const SdpMedia &offer, SdpMedia &answer);
 
     /**
      * Enables RTP stream.
@@ -752,9 +611,6 @@ class AmRtpStream : public AmObject
      * @warning so that the internal SDP media line index is set properly.
      */
     virtual int init(const AmSdp &local, const AmSdp &remote, bool sdp_offer_owner, bool force_passive_mode);
-
-    void updateTransports();
-    void applyIceParams(SdpMedia & sdp);
 
     /** set the RTP stream on hold */
     void setOnHold(bool on_hold);
@@ -818,12 +674,6 @@ class AmRtpStream : public AmObject
     /** enable or disable relay of CN payload */
     void setRtpForceRelayCN(bool relay);
 
-    /** enable or disable endless symmetric rtp switching */
-    void setSymmetricRtpEndless(bool endless);
-    bool isSymmetricRtpEndless();
-
-    virtual bool isZrtpEnabled();
-
     /** enable or disable initial rtp ping on stream initialization.
       also it will set mark for all packets to zero */
     void setRtpPing(bool enable);
@@ -834,12 +684,6 @@ class AmRtpStream : public AmObject
     /** get dead rtp time */
     unsigned int getRtpTimeout();
 
-    /** remove from RTP receiver */
-    void stopReceiving();
-
-    /** (re-)insert into RTP receiver */
-    void resumeReceiving();
-
     /** Quick hack to assign existing stream to another session. The stream should
      * not be reinitialised implicitly (it might be used for media traffic
      * already). */
@@ -848,22 +692,13 @@ class AmRtpStream : public AmObject
         session = _s;
     }
 
-    /** set destination for logging all received/sent RTP and RTCP packets */
-    void setLogger(msg_logger * _logger);
-    void setSensor(msg_sensor * _sensor);
-
     void setForceBuffering(bool buffering)
     {
         force_buffering = buffering;
     }
 
-    void getMediaAcl(trsp_acl & acl);
-    bool getSdpOfferOwner();
-
     void         debug();
     virtual void getInfo(AmArg & ret);
-
-    const char *getSessionLocalTag() const;
 };
 
 // Local Variables:

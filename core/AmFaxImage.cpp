@@ -1,5 +1,6 @@
 #include "AmFaxImage.h"
 #include "AmSession.h"
+#include "media/AmMediaEndpoint.h"
 #include "udptl.h"
 #include "log.h"
 #include "sip/msg_logger.h"
@@ -158,8 +159,9 @@ void phase_e_handler(void *user_data, int result)
 int t38_tx_packet_handler(t38_core_state_t *s, void *user_data, const uint8_t *buf, int len, int count)
 {
     FaxT38Image *image = (FaxT38Image *)user_data;
+    // UDPTL is unreliable by design (T.38 carries redundancy), so a send failure is not fatal here;
+    // a missing T.38 stream is handled by readStreams (ends media processing).
     image->send_udptl_packet(buf, len);
-    // FIXME: should we ignore send errors here ?
     return 0;
 }
 
@@ -249,7 +251,7 @@ void UDPTLConnection::handleConnection(uint8_t *data, unsigned int size, struct 
     sockaddr_storage laddr;
     transport->getLocalAddr(&laddr);
 
-    AmRtpPacket *p = transport->getRtpStream()->createRtpPacket();
+    AmRtpPacket *p = transport->getEndpoint()->createRtpPacket();
     if (!p)
         return;
 
@@ -581,6 +583,24 @@ void FaxT38Image::setOptions(const t38_options_t &t38_options)
     m_t38_options = t38_options;
 }
 
+AmRtpAudio *FaxT38Image::faxStream()
+{
+    if (!m_sess)
+        return nullptr;
+    AmRtpAudio *fax = nullptr;
+    m_sess->forEachRtpStream([&](AmRtpAudio *s, MediaType type, TransProt) {
+        if (!fax && s && type == MT_IMAGE)
+            fax = s;
+    });
+    return fax;
+}
+
+void FaxT38Image::detachSession()
+{
+    AmLock l(m_sess_mut);
+    m_sess = nullptr;
+}
+
 int FaxT38Image::send_udptl_packet(const uint8_t *buf, int len)
 {
     static const cstring empty;
@@ -596,10 +616,14 @@ int FaxT38Image::send_udptl_packet(const uint8_t *buf, int len)
         return -1;
     }
 
-    FAX_DBG("udptl fax packet (len = %d) send to %s:%d", packet_len,
-            m_sess->RTPStream()->getRHost(FAX_TRANSPORT).c_str(), m_sess->RTPStream()->getRPort(FAX_TRANSPORT));
+    AmRtpAudio *fax = faxStream();
+    if (!fax)
+        return -1;
+
+    FAX_DBG("udptl fax packet (len = %d) send to %s:%d", packet_len, fax->getRHost(FAX_TRANSPORT).c_str(),
+            fax->getRPort(FAX_TRANSPORT));
     unsigned int tx_user_ts = m_last_ts * (FAX_RATE / 100) / (WALLCLOCK_RATE / 100);
-    int          ret        = m_sess->RTPStream()->send_udptl(tx_user_ts, data, packet_len);
+    int          ret        = fax->send_udptl(tx_user_ts, data, packet_len);
     if (-1 == ret) {
         CLASS_ERROR("sendto: %d, errno = %d", ret, errno);
         return ret;
@@ -610,8 +634,13 @@ int FaxT38Image::send_udptl_packet(const uint8_t *buf, int len)
 
 int FaxT38Image::readStreams(unsigned long long ts, unsigned char *buffer)
 {
+    AmLock      lock(m_sess_mut);
+    AmRtpAudio *fax = faxStream();
+    if (!fax)
+        return -1; // no T.38 stream (or session detached): end media processing
+
     AmRtpPacket *rp  = NULL;
-    int          err = m_sess->RTPStream()->nextPacket(rp);
+    int          err = fax->nextPacket(rp);
 
     if (err <= 0)
         return err;
@@ -621,16 +650,17 @@ int FaxT38Image::readStreams(unsigned long long ts, unsigned char *buffer)
 
     if (udptl_rx_packet(m_udptl_state, rp->getBuffer(), rp->getBufferSize()) < 0) {
         FAX_DBG("incorrect udptl packet [pkt-size=%u]", rp->getBufferSize());
-        m_sess->RTPStream()->freeRtpPacket(rp);
+        fax->getEndpoint()->freeRtpPacket(rp);
         return 0;
     }
 
-    m_sess->RTPStream()->freeRtpPacket(rp);
+    fax->getEndpoint()->freeRtpPacket(rp);
     return 0;
 }
 
 int FaxT38Image::writeStreams(unsigned long long ts, unsigned char *buffer)
 {
+    AmLock  lock(m_sess_mut);
     timeval now;
     gettimeofday(&now, NULL);
     m_last_ts      = ts;
@@ -683,7 +713,9 @@ void FaxT38Image::processDtmfEvents() {}
 
 void FaxT38Image::clearRTPTimeout()
 {
-    m_sess->RTPStream()->clearRTPTimeout();
+    AmLock lock(m_sess_mut);
+    if (AmRtpAudio *fax = faxStream())
+        fax->clearRTPTimeout();
 }
 
 void FaxT38Image::get_fax_params(std::map<std::string, std::string> &params)

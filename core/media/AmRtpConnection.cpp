@@ -1,7 +1,7 @@
 #include "AmRtpConnection.h"
 #include "AmMediaTransport.h"
 #include "AmLcConfig.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 static string streamConnType2str(AmStreamConnection::ConnectionType type)
 {
@@ -24,9 +24,9 @@ AmStreamConnection::AmStreamConnection(AmMediaTransport *_transport, const strin
     , r_host(remote_addr)
     , r_port(remote_port)
     , conn_type(type)
-    , stream_is_ice_stream(transport->getRtpStream()->isIceStream())
-    , stream_symmetric_rtp_endless(transport->getRtpStream()->isSymmetricRtpEndless())
-    , passive(transport->getRtpStream()->isSymmetricRtpEnable())
+    , stream_is_ice_stream(transport->getEndpoint()->isIceStream())
+    , stream_symmetric_rtp_endless(transport->getEndpoint()->isSymmetricRtpEndless())
+    , passive(transport->getEndpoint()->isSymmetricRtpEnable())
     , active_raddr_packet_received(false)
     , passive_set_time{ 0, 0 }
     , passive_packets(0)
@@ -46,9 +46,9 @@ AmStreamConnection::AmStreamConnection(AmStreamConnection *_parent, const string
     , r_host(remote_addr)
     , r_port(remote_port)
     , conn_type(type)
-    , stream_is_ice_stream(transport->getRtpStream()->isIceStream())
-    , stream_symmetric_rtp_endless(transport->getRtpStream()->isSymmetricRtpEndless())
-    , passive(transport->getRtpStream()->isSymmetricRtpEnable())
+    , stream_is_ice_stream(transport->getEndpoint()->isIceStream())
+    , stream_symmetric_rtp_endless(transport->getEndpoint()->isSymmetricRtpEndless())
+    , passive(transport->getEndpoint()->isSymmetricRtpEnable())
     , active_raddr_packet_received(false)
     , passive_set_time{ 0, 0 }
     , passive_packets(0)
@@ -152,13 +152,13 @@ void AmStreamConnection::process_packet(uint8_t *data, unsigned int size, struct
     handleSymmetricRtp(recv_addr, &recv_time);
     if (!passive && !isAddrConnection(recv_addr)) {
         // got packet from unknown remote addr. ignore it
-        auto stream = transport->getRtpStream();
-        stream->inc_drop_pack();
+        auto endpoint = transport->getEndpoint();
+        endpoint->inc_drop_pack();
         if ((dropped_by_raddr_packets++ % 1500) == 0 /* 1/0.02*10 (every 10 seconds) */) {
             CLASS_DBG("%u packets dropped by raddr check. "
-                      "packet raddr: %s:%hu, connection raddr: %s:%hu, stream:%p",
+                      "packet raddr: %s:%hu, connection raddr: %s:%hu, endpoint:%p",
                       dropped_by_raddr_packets, get_addr_str(recv_addr).data(), am_get_port(recv_addr),
-                      get_addr_str(&r_addr).data(), am_get_port(&r_addr), stream);
+                      get_addr_str(&r_addr).data(), am_get_port(&r_addr), endpoint);
         }
         return;
     }
@@ -179,14 +179,14 @@ void AmStreamConnection::handleSymmetricRtp(struct sockaddr_storage *recv_addr, 
         // active mode
         if (!active_raddr_packet_received && isAddrConnection(recv_addr)) {
             active_raddr_packet_received = true;
-            transport->getRtpStream()->onRtpEndpointLearned();
+            transport->getEndpoint()->onRtpEndpointLearned();
         }
         return;
     }
 
     // passive mode
 
-    auto stream          = transport->getRtpStream();
+    auto endpoint        = transport->getEndpoint();
     auto recv_from_raddr = isAddrConnection(recv_addr);
 
     switch (AmConfig.symmetric_rtp_mode) {
@@ -251,7 +251,7 @@ void AmStreamConnection::handleSymmetricRtp(struct sockaddr_storage *recv_addr, 
             CLASS_DBG("Symmetric %s: received packet from the advertised address. Leave passive mode", proto_str);
         }
         passive = false;
-        stream->onLeavePassiveMode();
+        endpoint->onLeavePassiveMode();
     } else {
         // endless mode
         string         addr_str = get_addr_str(recv_addr);
@@ -260,7 +260,7 @@ void AmStreamConnection::handleSymmetricRtp(struct sockaddr_storage *recv_addr, 
         CLASS_DBG("Symmetric %s: set new remote address: %s:%i. Stay in passive mode", proto_str, addr_str.c_str(),
                   port);
 
-        stream->onRtpEndpointLearned();
+        endpoint->onRtpEndpointLearned();
     }
 }
 
@@ -324,7 +324,7 @@ void AmRawConnection::handleConnection(uint8_t *data, unsigned int size, struct 
     sockaddr_storage laddr;
     transport->getLocalAddr(&laddr);
 
-    AmRtpPacket *p = transport->getRtpStream()->createRtpPacket();
+    AmRtpPacket *p = transport->getEndpoint()->createRtpPacket();
     if (!p)
         return;
 
@@ -355,7 +355,7 @@ void AmRtpConnection::handleConnection(uint8_t *data, unsigned int size, struct 
     sockaddr_storage laddr;
     transport->getLocalAddr(&laddr);
 
-    AmRtpPacket *p = transport->getRtpStream()->createRtpPacket();
+    AmRtpPacket *p = transport->getEndpoint()->createRtpPacket();
     if (!p)
         return;
 
@@ -384,7 +384,7 @@ void AmRtcpConnection::handleConnection(uint8_t *data, unsigned int size, struct
 {
     sockaddr_storage laddr;
     transport->getLocalAddr(&laddr);
-    AmRtpPacket *p = transport->getRtpStream()->createRtpPacket();
+    AmRtpPacket *p = transport->getEndpoint()->createRtpPacket();
     if (!p)
         return;
     p->recv_time = recv_time;
@@ -393,5 +393,5 @@ void AmRtcpConnection::handleConnection(uint8_t *data, unsigned int size, struct
     p->setLocalAddr(&laddr);
     p->setBuffer(data, size);
     transport->onRtcpPacket(p, parent ? parent : this);
-    transport->getRtpStream()->freeRtpPacket(p);
+    transport->getEndpoint()->freeRtpPacket(p);
 }

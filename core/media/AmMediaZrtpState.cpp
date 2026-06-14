@@ -1,6 +1,6 @@
 #include "AmMediaZrtpState.h"
 #include "AmMediaState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaZrtpState::AmMediaZrtpState(AmMediaTransport *transport)
     : AmMediaState(transport)
@@ -11,14 +11,14 @@ AmMediaZrtpState::AmMediaZrtpState(AmMediaTransport *transport)
 AmMediaState *AmMediaZrtpState::init(const AmMediaStateArgs &args)
 {
     addConnections(args);
-    transport->getRtpStream()->startZrtp();
+    transport->getEndpoint()->startZrtp();
     return this;
 }
 
 AmMediaState *AmMediaZrtpState::update(const AmMediaStateArgs &args)
 {
     updateConnections(args);
-    transport->getRtpStream()->startZrtp();
+    transport->getEndpoint()->startZrtp();
     return this;
 }
 
@@ -41,7 +41,7 @@ void AmMediaZrtpState::addConnections(const AmMediaStateArgs &args)
         CLASS_DBG("add zrtp connection, state:%s, type:%s, remote_address:%s, remote_port:%d", state2str(),
                   transport->type2str(), args.address.value().c_str(), *args.port);
         auto new_zrtp_conn = transport->getConnFactory()->createZrtpConnection(
-            *args.address, *args.port, transport->getRtpStream()->getZrtpContext());
+            *args.address, *args.port, transport->getEndpoint()->getZrtpContext());
         transport->addConnection(new_zrtp_conn, [&]() { transport->setCurRtpConn(new_zrtp_conn); });
 
         CLASS_DBG("add rtcp connection, state:%s, type:%s, remote_address:%s, remote_port:%d", state2str(),

@@ -11,6 +11,7 @@
 #define T38_FMT "t38"
 
 class AmSession;
+class AmRtpAudio;
 class msg_logger;
 
 typedef struct t38_option {
@@ -111,12 +112,15 @@ class FaxAudioImage : public AmAudio, public AmFaxImage {
 };
 
 class FaxT38Image : public AmMediaSession, public AmFaxImage, public atomic_ref_cnt {
+    AmMutex               m_sess_mut;
     AmSession            *m_sess;
     t38_terminal_state_t *m_t38_state;
     udptl_state_t        *m_udptl_state;
     t38_options_t         m_t38_options;
     struct timeval        m_lastTime;
     unsigned long long    m_last_ts;
+
+    AmRtpAudio *faxStream();
 
   public:
     FaxT38Image(AmSession *sess, const std::string &filePath, bool send, ContextLoggingHook *logger_);
@@ -125,6 +129,8 @@ class FaxT38Image : public AmMediaSession, public AmFaxImage, public atomic_ref_
     int  send_udptl_packet(const uint8_t *buf, int len);
     int  init_t38();
     void setOptions(const t38_options_t &t38_options);
+
+    void detachSession();
 
   protected:
     // AmMediaSession implementation

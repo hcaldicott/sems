@@ -48,12 +48,24 @@ class FaxSession : public AmSession {
         dec_ref(t38);
     }
 
+    // the stream currently carrying media: the T.38 (image) stream wherever its m= line sits
+    // (same slot or a new one), else the primary audio stream
+    AmRtpAudio *activeStream()
+    {
+        AmRtpAudio *img = nullptr;
+        forEachRtpStream([&](AmRtpAudio *s, MediaType type, TransProt) {
+            if (s && !s->isDisabled() && type == MT_IMAGE && !img)
+                img = s;
+        });
+        return img ? img : RTPStream();
+    }
+
     void process(AmEvent *ev) override
     {
         FaxCompleteEvent *fax_ev = dynamic_cast<FaxCompleteEvent *>(ev);
         if (fax_ev) {
             fax_success = fax_ev->m_isSuccess;
-            RTPStream()->stopReceiving();
+            activeStream()->stopReceiving();
             AmMediaProcessor::instance()->clearSession(t38);
             AmMediaProcessor::instance()->clearSession(this);
             while (t38->isProcessingMedia() || isProcessingMedia()) {
@@ -73,15 +85,16 @@ class FaxSession : public AmSession {
     int init()
     {
         setInOut(audio, audio);
-        return RTPStream()->init(local, *remote, true, false);
+        return activeStream()->init(local, *remote, true, false);
     }
 
     virtual void onStart() override
     {
         AmSessionContainer::instance()->addSession(getLocalTag(), this);
         started.set(true);
-        RTPStream()->resumeReceiving();
-        if (local.media[RTPStream()->getSdpMediaIndex()].type == MT_IMAGE) {
+        AmRtpAudio *s = activeStream();
+        s->resumeReceiving();
+        if (s->getMediaType() == MT_IMAGE) {
             AmMediaProcessor::instance()->addSession(t38, callgroup);
         } else {
             startMediaProcessing();
@@ -349,11 +362,11 @@ TEST_F(FaxTest, AudioToT38Test)
         GTEST_ASSERT_EQ(sessionA.init(), 0);
         GTEST_ASSERT_EQ(sessionB.init(), 0);
 
-        sessionA.RTPStream()->setReuseMediaPort(false);
-        sessionA.RTPStream()->addAdditionTransport();
+        // re-INVITE to T.38 on a NEW m= line: disable the audio slot, add a fax stream
+        sessionA.RTPStream()->setDisabled(true);
+        sessionA.addRtpStream()->setTransport(TP_UDPTL);
         sessionA.setMediaTransport(TP_UDPTL);
         sessionA.setMediaType(MT_IMAGE);
-        sessionA.setReuseMediaSlot(false);
         sessionA.getSdpOffer(sessionA.local);
         GTEST_ASSERT_EQ(sessionA.local.media.size(), 2);
         for (auto &media : sessionA.local.media) {
@@ -363,8 +376,6 @@ TEST_F(FaxTest, AudioToT38Test)
                 EXPECT_EQ(media.port, 0);
         }
 
-        sessionB.RTPStream()->setReuseMediaPort(false);
-        sessionB.RTPStream()->addAdditionTransport();
         sessionB.setMediaTransport(TP_UDPTL);
         sessionB.setMediaType(MT_IMAGE);
         sessionB.getSdpAnswer(sessionA.local, sessionB.local);
@@ -414,12 +425,10 @@ TEST_F(FaxTest, ReinviteT38Test)
         FaxSession sessionA(ip, OFFER), sessionB(ip, ANSWER);
         t38_option options;
 
-        sessionA.RTPStream()->setReuseMediaPort(false);
         sessionA.setMediaTransport(TP_RTPAVP);
         sessionA.getSdpOffer(sessionA.local);
         GTEST_ASSERT_EQ(sessionA.local.media.size(), 1);
 
-        sessionB.RTPStream()->setReuseMediaPort(false);
         sessionB.setMediaTransport(TP_RTPAVP);
         GTEST_ASSERT_NE(sessionA.local.media.size(), 0);
         sessionB.getSdpAnswer(sessionA.local, sessionB.local);
@@ -430,18 +439,14 @@ TEST_F(FaxTest, ReinviteT38Test)
         GTEST_ASSERT_EQ(sessionA.init(), 0);
         GTEST_ASSERT_EQ(sessionB.init(), 0);
 
-        sessionB.RTPStream()->setReuseMediaPort(true);
+        // re-INVITE to T.38 on the same m= line (same slot, same port): only the transport type changes
         sessionB.setMediaType(MT_IMAGE);
-        sessionB.setReuseMediaSlot(true);
         sessionB.setMediaTransport(TP_UDPTL);
-        sessionB.RTPStream()->addAdditionTransport();
         sessionB.getSdpOffer(sessionB.local);
         GTEST_ASSERT_EQ(sessionB.local.media.size(), 1);
 
-        sessionA.RTPStream()->setReuseMediaPort(false);
-        sessionA.setMediaTransport(TP_UDPTL);
-        sessionA.RTPStream()->addAdditionTransport();
         sessionA.setMediaType(MT_IMAGE);
+        sessionA.setMediaTransport(TP_UDPTL);
         sessionA.getSdpAnswer(sessionB.local, sessionA.local);
         GTEST_ASSERT_EQ(sessionA.local.media.size(), 1);
 
@@ -483,13 +488,11 @@ TEST_F(FaxTest, IceReinviteT38Test)
         FaxSession sessionA(ip, OFFER), sessionB(ip, ANSWER);
         t38_option options;
 
-        sessionA.RTPStream()->setReuseMediaPort(false);
         sessionA.useIceMediaStream();
         sessionA.setMediaTransport(TP_RTPAVP);
         sessionA.getSdpOffer(sessionA.local);
         GTEST_ASSERT_EQ(sessionA.local.media.size(), 1);
 
-        sessionB.RTPStream()->setReuseMediaPort(false);
         sessionB.useIceMediaStream();
         sessionB.setMediaTransport(TP_RTPAVP);
         GTEST_ASSERT_NE(sessionA.local.media.size(), 0);
@@ -501,18 +504,14 @@ TEST_F(FaxTest, IceReinviteT38Test)
         GTEST_ASSERT_EQ(sessionA.init(), 0);
         GTEST_ASSERT_EQ(sessionB.init(), 0);
 
-        sessionB.RTPStream()->setReuseMediaPort(false);
+        // re-INVITE to T.38 on the same m= line (same slot, same port): only the transport type changes
         sessionB.setMediaType(MT_IMAGE);
-        sessionB.setReuseMediaSlot(true);
         sessionB.setMediaTransport(TP_UDPTL);
-        sessionB.RTPStream()->addAdditionTransport();
         sessionB.getSdpOffer(sessionB.local);
         GTEST_ASSERT_EQ(sessionB.local.media.size(), 1);
 
-        sessionA.RTPStream()->setReuseMediaPort(false);
-        sessionA.setMediaTransport(TP_UDPTL);
-        sessionA.RTPStream()->addAdditionTransport();
         sessionA.setMediaType(MT_IMAGE);
+        sessionA.setMediaTransport(TP_UDPTL);
         sessionA.getSdpAnswer(sessionB.local, sessionA.local);
         GTEST_ASSERT_EQ(sessionA.local.media.size(), 1);
 

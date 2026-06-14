@@ -1237,21 +1237,27 @@ static void parse_sdp_media(AmSdp *sdp_msg, char *s)
         }
         case PROTO:
         {
-            next = parse_until(media_line, ' ');
+            bool   has_fmt = contains(media_line, line_end, ' ');
             string proto;
-            if (next > media_line)
-                proto = string(media_line, static_cast<size_t>(next - media_line) - 1);
-            // if(transport_type(proto) < 0){
-            //   ERROR("parse_sdp_media: Unknown transport protocol");
-            //   state = FMT;
-            //   break;
-            // }
+            if (has_fmt) {
+                next = parse_until(media_line, ' ');
+                if (next > media_line)
+                    proto = string(media_line, static_cast<size_t>(next - media_line) - 1);
+            } else if (line_end > media_line) {
+                next = parse_until(media_line, line_end, CR);
+                if (next > media_line)
+                    proto = string(media_line, static_cast<size_t>(next - media_line) - 1);
+            }
             m.transport = transport_type(proto);
             if (m.transport == TP_NONE) {
                 DBG("Unknown transport protocol: %s", proto.c_str());
             }
-            media_line = next;
-            state      = FMT;
+            if (has_fmt) {
+                media_line = next;
+                state      = FMT;
+            } else {
+                parsing = 0; // no fmt list - media line is complete
+            }
             break;
         }
         case FMT:

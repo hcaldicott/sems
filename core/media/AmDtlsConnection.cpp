@@ -11,7 +11,7 @@
 #include <botan/dl_group.h>
 #include "AmLCContainers.h"
 #include "AmLcConfig.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 #define DTLS_TIMER_INTERVAL_MS 1000
 
@@ -249,7 +249,7 @@ void DtlsTimer::reset()
     wheeltimer::instance()->insert_timer(this);
 }
 
-RtpSecureContext::RtpSecureContext(AmRtpStream *stream, const srtp_fingerprint_p &_fingerprint, bool client)
+RtpSecureContext::RtpSecureContext(AmMediaEndpoint *endpoint, const srtp_fingerprint_p &_fingerprint, bool client)
     : DtlsContext(client)
     , tls_callbacks_proxy(std::make_shared<BotanTLSCallbacksProxy>(*this))
     , srtp_profile(srtp_profile_reserved)
@@ -259,7 +259,7 @@ RtpSecureContext::RtpSecureContext(AmRtpStream *stream, const srtp_fingerprint_p
     , rand_gen(std::make_shared<Botan::System_RNG>())
     , activated(false)
     , pending_handshake_timer(nullptr)
-    , rtp_stream(stream)
+    , endpoint(endpoint)
     , cur_conn(0)
     , handshake_start{ 0, 0 }
     , handshake_done{ 0, 0 }
@@ -285,8 +285,8 @@ void RtpSecureContext::initContext(const string &host, int port, shared_ptr<dtls
     if (!reinit && dtls_channel)
         return;
 
-    CLASS_DBG("init %s dtls context of rtp_stream(%p), dtls_channel - %p", settings->is_client() ? "client" : "server",
-              rtp_stream, dtls_channel);
+    CLASS_DBG("init %s dtls context of endpoint(%p), dtls_channel - %p", settings->is_client() ? "client" : "server",
+              endpoint, dtls_channel);
 
     if (dtls_channel) {
         if (pending_handshake_timer) {
@@ -431,7 +431,7 @@ void RtpSecureContext::tls_session_activated()
         remote_key.insert(remote_key.end(), key.begin() + key_len * 2 + salt_size, key.end());
     }
 
-    rtp_stream->dtlsSessionActivated(cur_conn->getTransport(), srtp_profile, local_key, remote_key);
+    endpoint->dtlsSessionActivated(cur_conn->getTransport(), srtp_profile, local_key, remote_key);
 }
 
 void RtpSecureContext::tls_session_established(const Botan::TLS::Session_Summary &session)
@@ -476,7 +476,7 @@ void RtpSecureContext::tls_verify_cert_chain(const std::vector<Botan::X509_Certi
 void RtpSecureContext::tls_ssl_key_log_data(std::string_view label, std::span<const uint8_t> client_random,
                                             std::span<const uint8_t> secret) const
 {
-    auto log = rtp_stream->getSklfile();
+    auto log = endpoint->getSklfile();
     if (log) {
         log->log(label.data(), Botan::hex_encode(client_random.data(), client_random.size()),
                  Botan::hex_encode(secret.data(), secret.size()));
@@ -496,7 +496,7 @@ void AmDtlsConnection::handleConnection(uint8_t *data, unsigned int size, struct
     try {
         dtls_context->onRecvData(this, data, size);
     } catch (Botan::Exception &exc) {
-        transport->getRtpStream()->onErrorRtpTransport(DTLS_ERROR, string("DTLS error: ") + exc.what(), transport);
+        transport->getEndpoint()->onErrorRtpTransport(DTLS_ERROR, string("DTLS error: ") + exc.what(), transport);
     }
 }
 
@@ -522,7 +522,7 @@ void AmDtlsConnection::onRecvData(uint8_t *data, unsigned int size)
 {
     sockaddr_storage laddr;
     transport->getLocalAddr(&laddr);
-    AmRtpPacket *p = transport->getRtpStream()->createRtpPacket();
+    AmRtpPacket *p = transport->getEndpoint()->createRtpPacket();
     if (!p)
         return;
     p->recv_time = last_recv_time;

@@ -27,6 +27,8 @@
 
 #include "AmSession.h"
 #include "AmSdp.h"
+#include "AmMediaTransaction.h"
+#include "AmMediaEndpoint.h"
 #include "AmUtils.h"
 #include "AmPlugIn.h"
 #include "AmApi.h"
@@ -91,11 +93,11 @@ AmSession::AmSession(AmSipDialog *p_dlg)
     , override_frame_size(0)
     , media_transport(TransProt::TP_NONE)
     , media_type(MediaType::MT_AUDIO)
-    , reuse_media_slot(true)
     , use_ice_media_stream(false)
     , ice_nominate_first_valid(false)
     , ice_allow_no_candidates(true)
     , use_bundle_media_stream(false)
+    , audio_1st_stream(true)
     , rtcp_multiplexing(false)
     , rtp_interface(-1)
     , rtp_proto_id(-1)
@@ -188,10 +190,92 @@ void AmSession::setMediaType(MediaType type)
     media_type = type;
 }
 
-void AmSession::setReuseMediaSlot(bool reuse_media)
+void AmSession::setMediaTransaction(unique_ptr<AmMediaTransaction> txn)
 {
-    CLASS_DBG("set reuse media slot: %s", reuse_media ? "true" : "false");
-    reuse_media_slot = reuse_media;
+    media_txn = std::move(txn);
+}
+
+void AmSession::commitMediaTransaction()
+{
+    if (!media_txn)
+        return;
+    media_txn->commit();
+    media_txn.reset();
+}
+
+void AmSession::rollbackMediaTransaction()
+{
+    if (!media_txn)
+        return;
+    media_txn->rollback();
+    media_txn.reset();
+}
+
+void AmSession::restoreMedia(const AmSdp &prev_local_sdp)
+{
+    if (!prev_local_sdp.media.empty()) {
+        setMediaType((MediaType)prev_local_sdp.media[0].type);
+        setMediaTransport(prev_local_sdp.media[0].transport);
+    }
+
+    // recovery re-INVITE with the previous (pre-reconfig) SDP
+    AmSdp sdp = prev_local_sdp;
+    sdp.origin.sessV++;
+    string body_str;
+    sdp.print(body_str);
+    AmMimeBody body;
+    body.parse(SIP_APPLICATION_SDP, (const unsigned char *)body_str.data(), body_str.size());
+    dlg->reinvite("", &body, SIP_FLAGS_VERBATIM);
+}
+
+AmRtpAudio *AmSession::RTPStream(unsigned media_idx)
+{
+    for (auto &slot : _rtp_streams)
+        if (slot.stream && (unsigned)slot.stream->getSdpMediaIndex() == media_idx)
+            return slot.stream.get();
+    if (media_idx == 0 && _rtp_streams.empty())
+        return addRtpStream();
+    return nullptr;
+}
+
+AmRtpAudio *AmSession::addRtpStream()
+{
+    unsigned media_idx = (unsigned)_rtp_streams.size();
+    DBG("creating RTP stream instance (media_idx %u) for session [%p]", media_idx, this);
+    _rtp_streams.push_back(
+        { unique_ptr<AmRtpAudio>(new AmRtpAudio(this, rtp_interface, media_idx)), MT_NONE, TP_NONE });
+    return _rtp_streams.back().stream.get();
+}
+
+AmRtpAudio *AmSession::addRtpStream(AmRtpAudio *s)
+{
+    _rtp_streams.push_back({ unique_ptr<AmRtpAudio>(s), MT_NONE, TP_NONE });
+    return s;
+}
+
+bool AmSession::hasRtpStream(unsigned media_idx)
+{
+    for (auto &slot : _rtp_streams)
+        if (slot.stream && (unsigned)slot.stream->getSdpMediaIndex() == media_idx)
+            return true;
+    return false;
+}
+
+void AmSession::forEachRtpStream(const std::function<void(AmRtpAudio *, MediaType, TransProt)> &fn)
+{
+    for (auto &slot : _rtp_streams) {
+        if (slot.stream)
+            fn(slot.stream.get(), slot.stream->getMediaType(), slot.stream->getTransport());
+        else // empty placeholder slot
+            fn(nullptr, slot.type, slot.transport);
+    }
+}
+
+AmMediaEndpoint *AmSession::addMediaEndpoint(AmMediaEndpoint *ep)
+{
+    if (ep)
+        _endpoints.emplace_back(ep);
+    return ep;
 }
 
 void AmSession::addHandler(AmSessionEventHandler *sess_evh)
@@ -806,7 +890,7 @@ void AmSession::process(AmEvent *ev)
 
     MediaEstablishedEvent *media_est_ev = dynamic_cast<MediaEstablishedEvent *>(ev);
     if (media_est_ev) {
-        onMediaEstablished(media_est_ev->setup_time_ms);
+        onMediaEstablished(media_est_ev->setup_time_ms, media_est_ev->media_indexes);
         return;
     }
 }
@@ -970,46 +1054,59 @@ bool AmSession::getSdpOffer(AmSdp &offer)
 
     offer.version     = 0;
     offer.origin.user = AmConfig.sdp_origin;
-    // offer.origin.sessId = 1;
-    // offer.origin.sessV = 1;
     offer.sessionName = AmConfig.sdp_session_name;
 
-    // TODO: support mutiple media types (needs multiples RTP streams)
     // TODO: support update instead of clearing everything
 
-    if (RTPStream()->getSdpMediaIndex() < 0)
-        offer.media.clear();
+    RTPStream(); // ensure the primary stream exists
 
-    unsigned int media_idx = 0;
-    if (!offer.media.size()) {
+    // one m= line per slot, in index order; empty/disabled slots emit a port-0 placeholder
+    offer.media.clear();
+    string conn_addr;
+    audio_1st_stream = true;
+    forEachRtpStream([&](AmRtpAudio *s, MediaType type, TransProt transport) {
         offer.media.push_back(SdpMedia());
-    } else {
-        media_idx = RTPStream()->getSdpMediaIndex();
-        if (!reuse_media_slot && offer.media[media_idx].type != media_type) {
-            offer.media[media_idx].port = 0;
-            offer.media[media_idx].send = false;
-            offer.media[media_idx].recv = false;
-        } else {
-            offer.media.clear();
+        SdpMedia &m = offer.media.back();
+        if (override_frame_size)
+            m.frame_size = override_frame_size;
+        if (!s) { // empty placeholder slot: disabled (port-0) m= line, no transport allocated
+            m.type      = type;
+            m.transport = transport;
+            m.port      = 0;
+            m.send      = false;
+            m.recv      = false;
+            return;
         }
-
-        offer.media.push_back(SdpMedia());
-        media_idx = offer.media.size() - 1;
-    }
-
-    if (!offer.media.empty() && override_frame_size) {
-        auto &m      = offer.media.back();
-        m.frame_size = override_frame_size;
-    }
-
-    RTPStream()->setLocalIP();
-    RTPStream()->getSdpOffer(media_idx, offer.media.back());
+        if (!s->isDisabled())
+            s->getEndpoint()->setLocalIP();
+        s->getSdpOffer(m);
+        if (type == MT_AUDIO)
+            audio_1st_stream = false;
+        if (conn_addr.empty() && !s->isDisabled()) // c= from an active stream (interface host)
+            conn_addr = s->getEndpoint()->getLocalAddress();
+    });
+    // staged (uncommitted) streams from an in-flight media transaction emit their m= lines below
+    if (media_txn)
+        media_txn->forEachStaged([&](AmRtpAudio *s) {
+            offer.media.push_back(SdpMedia());
+            SdpMedia &m = offer.media.back();
+            if (override_frame_size)
+                m.frame_size = override_frame_size;
+            s->getEndpoint()->setLocalIP();
+            s->getSdpOffer(m);
+            if (s->getMediaType() == MT_AUDIO)
+                audio_1st_stream = false;
+            if (conn_addr.empty())
+                conn_addr = s->getEndpoint()->getLocalAddress();
+        });
+    if (conn_addr.empty())
+        conn_addr = RTPStream()->getEndpoint()->getLocalAddress();
 
     sockaddr_storage ss;
-    am_inet_pton(RTPStream()->getLocalIP().c_str(), &ss);
+    am_inet_pton(conn_addr.c_str(), &ss);
     offer.conn.network  = NT_IN;
     offer.conn.addrType = ss.ss_family == AF_INET ? AT_V4 : AT_V6;
-    offer.conn.address  = RTPStream()->getLocalAddress();
+    offer.conn.address  = conn_addr;
 
     // BUNDLE (RFC 9143): aggregate a=group:BUNDLE from the streams that advertised bundling (mid set by stream)
     SdpGroup grp("BUNDLE", SdpGroup::BUNDLE);
@@ -1064,17 +1161,29 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
 
     answer.media.clear();
 
-    bool         audio_1st_stream = true;
-    unsigned int media_index      = 0;
-
+    audio_1st_stream = true;
+    string   conn_addr;
+    unsigned idx = 0;
     for (const auto &m : offer.media) {
         answer.media.push_back(SdpMedia());
         SdpMedia &answer_media    = answer.media.back();
         auto     &answer_payloads = answer_media.payloads;
 
-        if (m.type == MT_AUDIO && m.transport != TP_UDPTL && media_type != MT_IMAGE && audio_1st_stream &&
-            (m.port != 0))
-        {
+        // a new m= line position has no slot yet (RFC 3264: lines are appended, never reordered)
+        bool new_position = (idx >= _rtp_streams.size());
+
+        bool accept_audio = (m.type == MT_AUDIO && m.transport != TP_UDPTL && audio_1st_stream && m.port != 0);
+        bool accept_fax =
+            (m.type == MT_IMAGE && (m.transport == TP_UDPTL || m.transport == TP_UDPTLSUDPTL) && m.port != 0);
+        bool accept = accept_audio || accept_fax;
+
+        AmRtpAudio *stream = accept ? RTPStream(idx) : nullptr;
+        if (!stream && accept && new_position)
+            stream = addRtpStream(); // sequential -> appended index matches the position
+
+        if (stream) {
+            stream->setDisabled(false);
+
             if (!connection_line_is_processed) {
                 if (m.conn.address.empty()) {
                     throw Exception(488, "missed c= line");
@@ -1083,34 +1192,36 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
                 connection_line_is_processed = true;
             }
 
-            setRtcpMultiplexing(m.is_multiplex);
+            if (accept_audio)
+                setRtcpMultiplexing(m.is_multiplex);
 
-            RTPStream()->setLocalIP(addrtype);
-            RTPStream()->getSdpAnswer(media_index, m, answer_media);
+            stream->getEndpoint()->setLocalIP(addrtype);
+            stream->getSdpAnswer(m, answer_media);
 
-            /* TODO: here could be issue when multiple media streams
-               use different address families. add additional checks */
-
-            if (answer_media.is_use_ice()) {
+            if (answer_media.is_use_ice())
                 answer.use_ice = true;
-            }
 
             answer_media.frame_size = override_frame_size ? override_frame_size : m.frame_size;
 
-            if (answer_payloads.empty() ||
-                ((answer_payloads.size() == 1) && (answer_payloads[0].encoding_name == "telephone-event")))
+            if (accept_audio && (answer_payloads.empty() || ((answer_payloads.size() == 1) &&
+                                                             (answer_payloads[0].encoding_name == "telephone-event"))))
             {
                 // no compatible media found
                 throw Exception(488, "no compatible payload");
             }
 
-            audio_1st_stream = false;
-        } else if (m.type == MT_IMAGE && (m.transport == TP_UDPTL || m.transport == TP_UDPTLSUDPTL) &&
-                   media_type == MT_IMAGE && (m.port != 0))
-        {
-            RTPStream()->setLocalIP(addrtype);
-            RTPStream()->getSdpAnswer(media_index, m, answer_media);
+            if (conn_addr.empty()) // c= from an active stream
+                conn_addr = stream->getEndpoint()->getLocalAddress();
+
+            if (accept_audio)
+                audio_1st_stream = false;
         } else {
+            // rejected/unsupported m= line: a new position keeps an empty placeholder slot (no AmRtpAudio);
+            // an existing stream the peer turned off (port 0) is disabled to match (RFC 3264). Reject with port 0.
+            if (new_position)
+                addEmptyRtpSlot((MediaType)m.type, m.transport);
+            else if (AmRtpAudio *s = RTPStream(idx))
+                s->setDisabled(true);
             answer_media.type       = m.type;
             answer_media.port       = 0;
             answer_media.nports     = 0;
@@ -1130,8 +1241,7 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
         }
         // sort payload type in the answer according to the priority given in the codec_order configuration key
         std::stable_sort(answer_payloads.begin(), answer_payloads.end(), codec_priority_cmp());
-
-        media_index++;
+        idx++;
     } //
 
     // BUNDLE (RFC 9143): aggregate a=group:BUNDLE from the accepted streams (mid set by stream)
@@ -1147,7 +1257,7 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
 
     answer.conn.network  = NT_IN;
     answer.conn.addrType = addrtype;
-    answer.conn.address  = RTPStream()->getLocalAddress();
+    answer.conn.address  = conn_addr.empty() ? RTPStream()->getEndpoint()->getLocalAddress() : conn_addr;
     return true;
 }
 
@@ -1186,8 +1296,14 @@ int AmSession::onSdpCompleted(const AmSdp &local_sdp, const AmSdp &remote_sdp, b
 
     try {
         AmAudioLockGuard audio_guard(this);
-        ret = RTPStream()->init(local_sdp, remote_sdp, sdp_offer_owner, AmConfig.force_symmetric_rtp);
-        RTPStream()->setStereoRecorders(getStereoRecorders(), nullptr);
+        commitMediaTransaction(); // negotiation succeeded: adopt the staged endpoint before re-init
+        forEachRtpStream([&](AmRtpAudio *stream, MediaType, TransProt) {
+            if (!stream || stream->isDisabled())
+                return; // empty/disabled slot: no media to initialize
+            if (stream->init(local_sdp, remote_sdp, sdp_offer_owner, AmConfig.force_symmetric_rtp) < 0)
+                ret = -1;
+            stream->setStereoRecorders(getStereoRecorders(), nullptr);
+        });
     } catch (const string &s) {
         ERROR("Error while initializing RTP stream: '%s'", s.c_str());
         ret = -1;
@@ -1241,7 +1357,7 @@ void AmSession::onIceConnectivityFailed()
     setStopped();
 }
 
-void AmSession::onMediaEstablished(unsigned long setup_time_ms)
+void AmSession::onMediaEstablished(unsigned long setup_time_ms, const std::vector<int> &media_indexes)
 {
     DBG("media established for session[%s] in %lu ms", getLocalTag().c_str(), setup_time_ms);
 }
@@ -1305,7 +1421,7 @@ string AmSession::sid4dbg()
 {
     string dbg;
     dbg = dlg->getCallid() + "/" + dlg->getLocalTag() + "/" + dlg->getRemoteTag() + "/" +
-          int2str(RTPStream()->getLocalPort()) + "/" + RTPStream()->getRHost(RTP_TRANSPORT) + ":" +
+          int2str(RTPStream()->getEndpoint()->getLocalPort()) + "/" + RTPStream()->getRHost(RTP_TRANSPORT) + ":" +
           int2str(RTPStream()->getRPort(RTP_TRANSPORT));
     return dbg;
 }
@@ -1488,9 +1604,12 @@ int AmSession::readStreams(unsigned long long ts, unsigned char *buffer)
     int              res = 0;
     AmAudioLockGuard audio_guard(this);
 
-    AmRtpAudio  *stream = RTPStream();
-    unsigned int f_size = stream->getFrameSize();
-    if (stream->checkInterval(ts)) {
+    forEachRtpStream([&](AmRtpAudio *stream, MediaType, TransProt) {
+        if (!stream || stream->isDisabled())
+            return; // empty/disabled slot: no media
+        unsigned int f_size = stream->getFrameSize();
+        if (!stream->checkInterval(ts))
+            return;
         int got = stream->get(ts, buffer, stream->getSampleRate(), f_size);
         if (got > 0) {
             if (isDtmfDetectionEnabled())
@@ -1498,16 +1617,16 @@ int AmSession::readStreams(unsigned long long ts, unsigned char *buffer)
             stream->feedInbandDetector(buffer, got, ts);
             if (input) {
                 input->applyPendingStereoRecorders(nullptr);
-                res = input->put(ts, buffer, stream->getSampleRate(), got);
-                if (res < 0) {
-                    DBG("input->put: %d", res);
+                if (input->put(ts, buffer, stream->getSampleRate(), got) < 0) {
+                    DBG("input->put failed");
+                    res = -1;
                 }
             }
         } else if (got < 0) {
             DBG("stream->get: %d", got);
             res = -1;
         }
-    }
+    });
 
     return res;
 }
@@ -1517,16 +1636,17 @@ int AmSession::writeStreams(unsigned long long ts, unsigned char *buffer)
     int              res = 0;
     AmAudioLockGuard audio_guard(this);
 
-    AmRtpAudio *stream = RTPStream();
-    if (stream->sendIntReached()) { // FIXME: shouldn't depend on checkInterval call before!
+    forEachRtpStream([&](AmRtpAudio *stream, MediaType, TransProt) {
+        if (!stream || stream->isDisabled())
+            return;                    // empty/disabled slot: no media
+        if (!stream->sendIntReached()) // FIXME: shouldn't depend on checkInterval call before!
+            return;
         auto f_size             = stream->getFrameSize();
         auto output_sample_rate = stream->getSampleRate();
-        int  got                = 0;
+        if (0 == output_sample_rate) [[unlikely]]
+            return;
 
-        if (0 == output_sample_rate) [[unlikely]] {
-            return 0;
-        }
-
+        int got = 0;
         if (output) {
             got = output->get(ts, buffer, output_sample_rate, f_size);
             if (got < 0)
@@ -1535,25 +1655,26 @@ int AmSession::writeStreams(unsigned long long ts, unsigned char *buffer)
 
         stream->processRtcpTimers(ts, stream->scaleSystemTS(ts));
 
-        if (got < 0)
-            res = -1; // FIXME: looks unreachable because of 'if (got < 0)' above
         if (got > 0) {
             stream->applyPendingStereoRecorders(nullptr);
-            res = stream->put(ts, buffer, output_sample_rate, got);
-            if (res < 0) {
-                DBG("stream->put: %d", res);
+            if (stream->put(ts, buffer, output_sample_rate, got) < 0) {
+                DBG("stream->put failed");
+                res = -1;
             }
         } else {
             stream->put_on_idle(ts);
         }
-    }
+    });
 
     return res;
 }
 
 void AmSession::ping(unsigned long long ts)
 {
-    RTPStream()->ping(ts);
+    forEachRtpStream([&](AmRtpAudio *stream, MediaType, TransProt) {
+        if (stream && !stream->isDisabled())
+            stream->ping(ts);
+    });
 }
 
 const char *AmSession::getProcessingStatusStr() const

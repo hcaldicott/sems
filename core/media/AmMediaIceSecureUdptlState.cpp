@@ -1,6 +1,6 @@
 #include "AmMediaTransport.h"
 #include "AmMediaIceSecureUdptlState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaIceSecureUdptlState::AmMediaIceSecureUdptlState(AmMediaTransport *transport)
     : AmMediaState(transport)
@@ -46,7 +46,7 @@ void AmMediaIceSecureUdptlState::addConnections(const AmMediaStateArgs &args)
         return;
 
     vector<AmStreamConnection *> new_conns;
-    auto dtls_context = transport->getRtpStream()->getDtlsContext(transport->getTransportType());
+    auto                         dtls_context = transport->getEndpoint()->getDtlsContext(transport->getTransportType());
     if (!dtls_context)
         return;
     CLASS_DBG("add dtls connection, state:%s, type:%s, raddr:%s, rport:%d", state2str(), transport->type2str(),

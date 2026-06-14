@@ -1658,3 +1658,40 @@ TEST(SdpParser, ExtMapParse)
     ASSERT_EQ(sdp.media[0].extmaps[2].uri, "urn:example:ext");
     ASSERT_EQ(sdp.media[0].extmaps[2].ext_attrs, "attr1 attr2");
 }
+
+TEST(SdpParser, MediaWithoutPayload)
+{
+    string sdp_str = "v=0\r\n"
+                     "o=- 1 1 IN IP4 192.168.0.110\r\n"
+                     "s=-\r\n"
+                     "c=IN IP4 192.168.0.110\r\n"
+                     "t=0 0\r\n"
+                     "m=audio 0 RTP/AVP\r\n" // rejected, no fmt, NOT the last line
+                     "m=image 49170 udptl t38\r\n";
+    AmSdp sdp;
+    ASSERT_EQ(sdp.parse(sdp_str.c_str()), 0);
+
+    ASSERT_EQ(sdp.media.size(), 2);
+    ASSERT_EQ(sdp.media[0].type, MT_AUDIO);
+    ASSERT_EQ(sdp.media[0].port, 0u);
+    ASSERT_EQ(sdp.media[0].transport, TP_RTPAVP); // not TP_NONE
+    ASSERT_TRUE(sdp.media[0].payloads.empty());
+    ASSERT_EQ(sdp.media[1].type, MT_IMAGE);
+    ASSERT_EQ(sdp.media[1].port, 49170u);
+    ASSERT_EQ(sdp.media[1].transport, TP_UDPTL);
+}
+
+TEST(SdpParser, MediaWithoutPayloadLastLine)
+{
+    string sdp_str = "v=0\r\n"
+                     "o=- 1 1 IN IP4 192.168.0.110\r\n"
+                     "s=-\r\n"
+                     "c=IN IP4 192.168.0.110\r\n"
+                     "t=0 0\r\n"
+                     "m=audio 0 RTP/AVP\r\n";
+    AmSdp  sdp;
+    ASSERT_EQ(sdp.parse(sdp_str.c_str()), 0);
+    ASSERT_EQ(sdp.media.size(), 1);
+    ASSERT_EQ(sdp.media[0].transport, TP_RTPAVP);
+    ASSERT_TRUE(sdp.media[0].payloads.empty());
+}

@@ -106,8 +106,8 @@ void AmAudioRtpFormat::initCodec()
     }
 }
 
-AmRtpAudio::AmRtpAudio(AmSession *_s, int _if)
-    : AmRtpStream(_s, _if)
+AmRtpAudio::AmRtpAudio(AmSession *_s, int _if, int media_index)
+    : AmRtpStream(_s, _if, media_index)
     , AmAudio(nullptr)
     , m_playout_type(SIMPLE_PLAYOUT)
     , playout_buffer(nullptr)
@@ -281,7 +281,7 @@ void AmRtpAudio::record(unsigned long long system_ts, unsigned char *buffer, int
 int AmRtpAudio::get(unsigned long long system_ts, unsigned char *buffer, int output_sample_rate,
                     unsigned int nb_samples)
 {
-    if (!(receiving || getPassiveMode()))
+    if (!(receiving || getEndpoint()->getPassiveMode()))
         return 0; // like nothing received
 
     int ret = receive(system_ts);
@@ -393,16 +393,6 @@ void AmRtpAudio::update_user_ts(unsigned long long system_ts)
     tx_user_ts = system_ts * (static_cast<unsigned long long>(rtp_fmt->getTSRate()) / 100) / (WALLCLOCK_RATE / 100);
 }
 
-void AmRtpAudio::getSdpOffer(unsigned int index, SdpMedia &offer)
-{
-    AmRtpStream::getSdpOffer(index, offer);
-}
-
-void AmRtpAudio::getSdpAnswer(unsigned int index, const SdpMedia &offer, SdpMedia &answer)
-{
-    AmRtpStream::getSdpAnswer(index, offer, answer);
-}
-
 int AmRtpAudio::init(const AmSdp &local, const AmSdp &remote, bool sdp_offer_owner, bool force_passive_mode)
 {
     DBG("AmRtpAudio::init(...)");
@@ -446,7 +436,7 @@ int AmRtpAudio::init(const AmSdp &local, const AmSdp &remote, bool sdp_offer_own
             setRecorder(session->getLocalTag());
         }
 
-        setSymmetricRtpEndless(session->getRtpEndlessSymmetricRtp());
+        getEndpoint()->setSymmetricRtpEndless(session->getRtpEndlessSymmetricRtp());
     }
 
     return 0;

@@ -1,6 +1,6 @@
 #include "AmMediaConnectionFactory.h"
 #include "AmMediaTransport.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaConnectionFactory::AmMediaConnectionFactory(AmMediaTransport *transport)
     : transport(transport)
@@ -54,7 +54,7 @@ AmStreamConnection *AmMediaConnectionFactory::createDtlsConnection(const string 
         AmDtlsConnection *conn = new AmDtlsConnection(transport, raddr, rport, context);
         context->setCurrentConnection(conn);
         if (!context->isInited()) {
-            transport->getRtpStream()->initDtls(transport->getTransportType(), context->is_client);
+            transport->getEndpoint()->initDtls(transport->getTransportType(), context->is_client);
         }
         return conn;
     } catch (string &error) {
@@ -80,7 +80,7 @@ AmStreamConnection *AmMediaConnectionFactory::createSrtpConnection(const string 
         conn->use_keys(static_cast<srtp_profile_t>(srtp_profile), local_key, remote_keys);
 
         if (conn->isMute()) {
-            transport->getRtpStream()->setMute(true);
+            transport->getEndpoint()->setMute(true);
         }
 
         return conn;

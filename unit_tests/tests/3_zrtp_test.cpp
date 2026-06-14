@@ -52,7 +52,7 @@ class ZRTPSession : public AmSession, public ZrtpContextSubscriber {
         srtp_init();
         RTPStream()->setMonitorRTPTimeout(false);
         RTPStream()->setPayloadProvider(&pl_prov);
-        RTPStream()->getZrtpContext()->addSubscriber(this);
+        RTPStream()->getEndpoint()->getZrtpContext()->addSubscriber(this);
 
         dlg->setRemoteUri(remote_uri);
         setLocalTag();

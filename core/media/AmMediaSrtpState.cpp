@@ -1,7 +1,7 @@
 #include "AmMediaTransport.h"
 #include "AmMediaSrtpState.h"
 #include "AmMediaSecureUdptlState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaSrtpState::AmMediaSrtpState(AmMediaTransport *transport)
     : AmMediaState(transport)
@@ -107,8 +107,8 @@ AmMediaState *AmMediaSrtpState::initSrtp(AmStreamConnection::ConnectionType base
 AmMediaState *AmMediaSrtpState::update(const AmMediaStateArgs &args)
 {
     if (args.dtls_srtp.has_value() && !args.dtls_srtp.value()) {
-        if (auto *stream = transport->getRtpStream())
-            stream->clearEstablished();
+        if (auto *ep = transport->getEndpoint())
+            ep->clearEstablished();
         auto sec = new AmMediaSecureUdptlState(transport);
         return sec->init(args);
     }

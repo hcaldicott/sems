@@ -1,5 +1,6 @@
 #include "AmMediaIceState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
+#include "AmSession.h"
 #include "AmMediaIceDtlsState.h"
 #include "AmMediaIceSrtpState.h"
 #include "AmMediaIceZrtpState.h"
@@ -199,14 +200,14 @@ bool AmMediaIceState::isSrtp()
 
 bool AmMediaIceState::isDtls()
 {
-    return !isSrtp() && transport->getRtpStream()->getDtlsContext(transport->getTransportType());
+    return !isSrtp() && transport->getEndpoint()->getDtlsContext(transport->getTransportType());
 }
 
 bool AmMediaIceState::isSecured()
 {
-    auto dtls_context = transport->getRtpStream()->getDtlsContext(transport->getTransportType());
+    auto dtls_context = transport->getEndpoint()->getDtlsContext(transport->getTransportType());
 #ifdef WITH_ZRTP
-    auto zrtp_context = transport->getRtpStream()->getZrtpContext();
+    auto zrtp_context = transport->getEndpoint()->getZrtpContext();
 #endif
     return (dtls_context && dtls_context->isActivated())
 #ifdef WITH_ZRTP
@@ -218,8 +219,8 @@ bool AmMediaIceState::isSecured()
 bool AmMediaIceState::isZrtp()
 {
 #ifdef WITH_ZRTP
-    return !isSrtp() && !isDtls() && transport->getRtpStream()->isZrtpEnabled() && transport->isZrtpEnable() &&
-           !transport->getRtpStream()->getZrtpContext()->getRemoteHash().empty();
+    return !isSrtp() && !isDtls() && transport->getEndpoint()->isZrtpEnabled() && transport->isZrtpEnable() &&
+           !transport->getEndpoint()->getZrtpContext()->getRemoteHash().empty();
 #else
     return false;
 #endif

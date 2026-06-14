@@ -2,7 +2,8 @@
 #include "AmStunConnection.h"
 #include "AmLcConfig.h"
 #include "AmMediaTransport.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
+#include "AmSession.h"
 #include "AmConcurrentVector.h"
 #include "stun/stunbuilder.h"
 #include "sip/ip_util.h"
@@ -61,8 +62,8 @@ IceContextStat::IceContextStat()
 {
 }
 
-IceContext::IceContext(AmRtpStream *stream, int type)
-    : stream(stream)
+IceContext::IceContext(AmMediaEndpoint *endpoint, int type)
+    : endpoint(endpoint)
     , state(ICE_INITIAL)
     , type(type)
     , current_candidate(nullptr)
@@ -136,7 +137,8 @@ void IceContext::initContext()
         setState(ICE_CONNECTIVITY_CHECK);
 
         if (no_pairs) {
-            if (!stream->isIceAllowNoCandidates()) {
+            AmSession *sess = endpoint->getSession();
+            if (!sess || !sess->isIceAllowNoCandidates()) {
                 // strict mode: empty candidate list is an immediate failure
                 onConnectivityFailed();
             } else {
@@ -233,7 +235,7 @@ bool IceContext::isUseCandidate(AmStunConnection *conn)
 {
     AmLock lock(pairs_mut);
     if (state == ICE_NOMINATIONS || state == ICE_KEEP_ALIVE) {
-        if (!stream->isIceControlled() && conn == current_candidate.get()) {
+        if (!endpoint->isIceControlled() && conn == current_candidate.get()) {
             return true;
         }
     }
@@ -262,7 +264,7 @@ void IceContext::allowCandidate(AmStunConnection *conn)
 
     sockaddr_storage ss;
     conn->getRAddr(&ss);
-    stream->allowStunConnection(conn->getTransport(), &ss, conn->getPriority());
+    endpoint->allowStunConnection(conn->getTransport(), &ss, conn->getPriority());
 }
 
 void IceContext::allowStunPair()
@@ -275,7 +277,7 @@ void IceContext::allowStunPair()
         current_candidate->getRAddr(&ss);
         transport = current_candidate->getTransport();
     }
-    stream->allowStunPair(transport, &ss);
+    endpoint->allowStunPair(transport, &ss);
 }
 
 void IceContext::setState(IceContext::State initial)
@@ -301,7 +303,8 @@ void IceContext::onConnectivityFailed()
     fail_notified = true;
     setConnectivityCheckTimer(0);
     DBG("ice: connectivity check failed (type %d), notify session", type);
-    stream->onIceConnectivityFailed();
+    if (AmSession *sess = endpoint->getSession())
+        sess->onIceConnectivityFailed();
 }
 
 void IceContext::setCurrentCandidate(AmStunConnection *conn)
@@ -315,7 +318,7 @@ void IceContext::setCurrentCandidate(AmStunConnection *conn)
 void IceContext::fillStat(IceContextStat &out)
 {
     out.transport_type = type;
-    out.controlled     = stream->isIceControlled();
+    out.controlled     = endpoint->isIceControlled();
     out.restarts       = restart_count;
     out.t_check_start  = phase_ts[ICE_CONNECTIVITY_CHECK];
     out.t_nomination   = phase_ts[ICE_NOMINATIONS];
@@ -362,9 +365,11 @@ void IceContext::updateStunTimers(std::unordered_map<AmStunConnection *, unsigne
                 case AmStunConnection::PAIR_WAITING:
                 case AmStunConnection::PAIR_FROZEN:  finish = false; break;
                 case AmStunConnection::PAIR_IN_PROGRESS:
-                    if (!stream->isIceNominateFirstValid())
+                {
+                    AmSession *sess = endpoint->getSession();
+                    if (!sess || !sess->isIceNominateFirstValid())
                         finish = false;
-                    break;
+                } break;
                 case AmStunConnection::PAIR_SUCCEEDED: succeeded = true; break;
                 default:                               break;
                 }
@@ -407,7 +412,7 @@ void IceContext::updateStunTimers(std::unordered_map<AmStunConnection *, unsigne
             conn.reset(getNominatedPair());
             if (conn) {
                 setCurrentCandidate(conn.get());
-                if (stream->isIceControlled()) {
+                if (endpoint->isIceControlled()) {
                     DBG("ice: finished nomination phase(type %d)", type);
                     setState(ICE_KEEP_ALIVE);
                 } else {
@@ -441,7 +446,7 @@ AmStunConnection::AmStunConnection(AmMediaTransport *_transport, const string &r
     , count(0)
     , retransmit_intervals{ 500, 1500, 3500, 7500, 15500, 31500, 39500 }
     , // rfc5389 7.2.1.Sending over UDP
-    context(transport->getRtpStream()->getIceContext(transport->getTransportType()))
+    context(transport->getEndpoint()->getIceContext(transport->getTransportType()))
     , stat_result{ 0, 0 }
     , stat_nominated(false)
     , stat_outcome(-1)
@@ -582,17 +587,16 @@ void AmStunConnection::check_request(CStunMessageReader *reader, sockaddr_storag
     if (remote_ice_role_is_controlled.has_value()) {
         remote_tiebreaker = be64toh(*(uint64_t *)(reader->GetStream().GetDataPointerUnsafe() + ice_ctrl_attr.offset));
 
-        if (valid && ((*remote_ice_role_is_controlled) == transport->getRtpStream()->isIceControlled())) {
+        if (valid && ((*remote_ice_role_is_controlled) == transport->getEndpoint()->isIceControlled())) {
             // roles conflict. less tiebreaker value means controlled mode
-            DBG("roles conflict. local:0x%llx, remote:0x%llx", transport->getRtpStream()->getIceTieBreaker(),
+            DBG("roles conflict. local:0x%llx, remote:0x%llx", transport->getEndpoint()->getIceTieBreaker(),
                 remote_tiebreaker);
 
-            bool tiebreaked_local_role_is_controlled =
-                transport->getRtpStream()->getIceTieBreaker() < remote_tiebreaker;
-            if (tiebreaked_local_role_is_controlled != transport->getRtpStream()->isIceControlled()) {
+            bool tiebreaked_local_role_is_controlled = transport->getEndpoint()->getIceTieBreaker() < remote_tiebreaker;
+            if (tiebreaked_local_role_is_controlled != transport->getEndpoint()->isIceControlled()) {
                 DBG("accept role change");
                 // accept role change
-                transport->getRtpStream()->onIceRoleConflict();
+                transport->getEndpoint()->onIceRoleConflict();
             } else {
                 DBG("reject role change");
                 // reject ICE role change
@@ -636,7 +640,7 @@ void AmStunConnection::check_request(CStunMessageReader *reader, sockaddr_storag
     bool          use_candidate = false;
     StunAttribute useCandidate;
     if (valid && (S_OK == reader->GetAttributeByType(STUN_ATTRIBUTE_USE_CANDIDATE, &useCandidate))) {
-        if (transport->getRtpStream()->isIceControlled())
+        if (transport->getEndpoint()->isIceControlled())
             use_candidate = true;
         else {
             err_code  = STUN_ERROR_BADREQUEST;
@@ -650,7 +654,7 @@ void AmStunConnection::check_request(CStunMessageReader *reader, sockaddr_storag
     builder.AddTransactionId(trnsId);
     if (err_code) {
         string error(", stun packet is dropped, ");
-        transport->getRtpStream()->onErrorRtpTransport(STUN_DROPPED_ERROR, error_str + error + username, transport);
+        transport->getEndpoint()->onErrorRtpTransport(STUN_DROPPED_ERROR, error_str + error + username, transport);
         builder.AddErrorCode(err_code, error_str.c_str());
     } else {
         CSocketAddress addr(r_addr);
@@ -707,7 +711,7 @@ void AmStunConnection::check_response(CStunMessageReader *reader, sockaddr_stora
 
     if (valid && reader->GetErrorCode(&err_code) == S_OK) {
         if (err_code == STUN_ERROR_ROLECONFLICT) {
-            transport->getRtpStream()->onIceRoleConflict();
+            transport->getEndpoint()->onIceRoleConflict();
         }
         error_str = "error response";
         valid     = false;
@@ -733,7 +737,7 @@ void AmStunConnection::check_response(CStunMessageReader *reader, sockaddr_stora
         allow_candidate(false);
     } else if (!valid) {
         string error("invalid stun message: ");
-        transport->getRtpStream()->onErrorRtpTransport(STUN_VALID_ERROR, error + error_str, transport);
+        transport->getEndpoint()->onErrorRtpTransport(STUN_VALID_ERROR, error + error_str, transport);
         if (err_code == STUN_ERROR_INCORRECT_TRANSID)
             return;
         if (err_code == STUN_ERROR_ROLECONFLICT) {
@@ -770,9 +774,9 @@ void AmStunConnection::send_request(StunTransactionId trans_id)
     nt_info[0]          = htons(1);
     builder.AddAttribute(STUN_ATTRIBUTE_NETWORK_INFO, &nt_info, 4);
 
-    uint64_t tb = htobe64(transport->getRtpStream()->getIceTieBreaker());
-    builder.AddAttribute(transport->getRtpStream()->isIceControlled() ? STUN_ATTRIBUTE_ICE_CONTROLLED
-                                                                      : STUN_ATTRIBUTE_ICE_CONTROLLING,
+    uint64_t tb = htobe64(transport->getEndpoint()->getIceTieBreaker());
+    builder.AddAttribute(transport->getEndpoint()->isIceControlled() ? STUN_ATTRIBUTE_ICE_CONTROLLED
+                                                                     : STUN_ATTRIBUTE_ICE_CONTROLLING,
                          (uint8_t *)&tb, STUN_TIE_BREAKER_LENGTH);
     if (context->isUseCandidate(this))
         builder.AddAttribute(STUN_ATTRIBUTE_USE_CANDIDATE, nullptr, 0);

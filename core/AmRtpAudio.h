@@ -132,7 +132,7 @@ class AmRtpAudio : public AmRtpStream, public AmAudio, public AmPLCBuffer {
     unsigned int default_plc(unsigned char *out_buf, unsigned int size, unsigned int channels, unsigned int rate);
 
   public:
-    AmRtpAudio(AmSession *_s, int _if);
+    AmRtpAudio(AmSession *_s, int _if, int media_index);
     ~AmRtpAudio();
 
     unsigned int getFrameSize();
@@ -160,10 +160,6 @@ class AmRtpAudio : public AmRtpStream, public AmAudio, public AmPLCBuffer {
     void update_user_ts(unsigned long long system_ts);
 
     unsigned int bytes2samples(unsigned int) const;
-
-    // AmRtpStream interface
-    void getSdpOffer(unsigned int index, SdpMedia &offer) override;
-    void getSdpAnswer(unsigned int index, const SdpMedia &offer, SdpMedia &answer) override;
 
     int init(const AmSdp &local, const AmSdp &remote, bool sdp_offer_owner, bool force_passive_mode) override;
 

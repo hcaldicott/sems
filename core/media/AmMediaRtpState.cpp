@@ -1,6 +1,6 @@
 #include "AmMediaTransport.h"
 #include "AmMediaRtpState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaRtpState::AmMediaRtpState(AmMediaTransport *transport)
     : AmMediaState(transport)
@@ -16,8 +16,8 @@ AmMediaState *AmMediaRtpState::init(const AmMediaStateArgs &args)
 AmMediaState *AmMediaRtpState::update(const AmMediaStateArgs &args)
 {
     if (args.udptl.value_or(false)) {
-        if (auto *stream = transport->getRtpStream())
-            stream->clearEstablished();
+        if (auto *ep = transport->getEndpoint())
+            ep->clearEstablished();
         auto new_state = new AmMediaUdptlState(transport);
         return new_state->init(args);
     } else {

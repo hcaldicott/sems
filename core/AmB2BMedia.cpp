@@ -220,11 +220,13 @@ StreamData::~StreamData()
 void StreamData::initialize(AmB2BSession *session, bool audio)
 {
     CLASS_DBG("StreamData::initialize()");
-    if (session || !audio) {
+    // a stream is never created without a session (audio and relay alike): a not-yet-attached leg (e.g. the
+    // forked A-leg held as NULL in the callee's media) defers creation to changeSession() once it appears
+    if (session) {
         if (!stream) {
-            stream = new AmRtpAudio(session, session ? session->getRtpInterface() : -1);
-            if (session)
-                session->setReferencingRtpStr(stream);
+            // media index assigned later via forceSdpMediaIndex() in initStream()
+            stream = new AmRtpAudio(session, session->getRtpInterface(), 0);
+            session->setReferencingRtpStr(stream);
             DBG("StreamData::initialize: stream: %p", stream);
         } else {
             ERROR("StreamData::initialize(%p[%s],%d): stream:%p. "
@@ -250,8 +252,7 @@ void StreamData::initialize(AmB2BSession *session, bool audio)
         if (session->getEnableDtmfRtpDetection())
             stream->force_receive_dtmf = true;
 
-        stream->setLocalIP();
-        stream->updateTransports();
+        stream->getEndpoint()->setLocalIP();
 
         force_symmetric_rtp           = session->getRtpRelayForceSymmetricRtp();
         enable_dtmf_transcoding       = session->getEnableDtmfTranscoding();
@@ -395,16 +396,17 @@ void StreamData::getInfo(AmArg &ret)
     }
 }
 
-void StreamData::changeSession(AmB2BSession *session)
+void StreamData::changeSession(AmB2BSession *session, bool audio)
 {
     owner_session = session;
 
     if (!stream) {
-        // the stream was not created yet
+        // the stream was not created yet (a deferred audio or relay stream whose leg just appeared);
+        // pass the pair's media kind so the audio-only session config is applied only to audio streams
         TRACE("delayed stream initialization for session %p", static_cast<void *>(session));
         if (session) {
             try {
-                initialize(session, true);
+                initialize(session, audio);
             } catch (...) {
                 cleanupFailedInit(session);
                 throw;
@@ -848,9 +850,9 @@ void AmB2BMedia::changeSessionUnsafe(bool a_leg, AmB2BSession *new_session)
 
             // replace session
             if (a_leg) {
-                pair.a.changeSession(new_session);
+                pair.a.changeSession(new_session, true);
             } else {
-                pair.b.changeSession(new_session);
+                pair.b.changeSession(new_session, true);
             }
 
             updateStreamPair(pair);
@@ -869,9 +871,9 @@ void AmB2BMedia::changeSessionUnsafe(bool a_leg, AmB2BSession *new_session)
             pair.b.resumeStreamProcessing();
         } else {
             if (a_leg)
-                pair.a.changeSession(new_session);
+                pair.a.changeSession(new_session, false);
             else
-                pair.b.changeSession(new_session);
+                pair.b.changeSession(new_session, false);
         }
     }
 
@@ -1107,7 +1109,7 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
                 auto stream = a_leg ? audio_pair->a.getStream() : audio_pair->b.getStream();
                 if (stream) {
                     stream->replaceAudioMediaParameters(*it, idx, addr_type);
-                    public_address = stream->getLocalAddress();
+                    public_address = stream->getEndpoint()->getLocalAddress();
                     if (!replaced_ports.empty())
                         replaced_ports += "/";
                     replaced_ports += int2str(it->port);
@@ -1138,10 +1140,11 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
                 try {
                     auto stream = a_leg ? relay_pair->a.getStream() : relay_pair->b.getStream();
                     if (stream) {
-                        stream->setLocalIP(addr_type);
-                        public_address = stream->getLocalAddress();
-                        it->port       = static_cast<unsigned int>(stream->getLocalPort());
-                        replaceRtcpAttr(*it, stream->getLocalIP(), stream->getLocalRtcpPort());
+                        stream->getEndpoint()->setLocalIP(addr_type);
+                        public_address = stream->getEndpoint()->getLocalAddress();
+                        it->port       = static_cast<unsigned int>(stream->getEndpoint()->getLocalPort());
+                        replaceRtcpAttr(*it, stream->getEndpoint()->getLocalIP(),
+                                        stream->getEndpoint()->getLocalRtcpPort());
 
                         if (!replaced_ports.empty())
                             replaced_ports += "/";
@@ -1286,6 +1289,8 @@ void AmB2BMedia::updateRelayStream(AmRtpStream *stream, AmB2BSession *session, c
     stream->stopReceiving();
     if (m.port) {
         stream->setRelayStream(relay_to);
+        if (relay_to)
+            relay_to->setRelayStream(stream);
         stream->setRelayPayloads(true_mask);
         if (!relay_paused)
             stream->enableRtpRelay();
@@ -1294,12 +1299,12 @@ void AmB2BMedia::updateRelayStream(AmRtpStream *stream, AmB2BSession *session, c
             stream->setRawRelay(true);
         if (session) {
             // propagate session settings
-            stream->setPassiveMode(session->getRtpRelayForceSymmetricRtp());
+            stream->getEndpoint()->setPassiveMode(session->getRtpRelayForceSymmetricRtp());
             stream->setRtpRelayTransparentSeqno(session->getRtpRelayTransparentSeqno());
             stream->setRtpRelayTransparentSSRC(session->getRtpRelayTransparentSSRC());
         }
         stream->setLogger(logger);
-        stream->setSklfile(sklfile);
+        stream->getEndpoint()->setSklfile(sklfile);
         stream->resumeReceiving();
     } else {
         DBG("disabled stream");
@@ -1652,10 +1657,10 @@ void AmB2BMedia::createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer,
     } else {
         if (a_leg) {
             if (a)
-                answer.conn.address = a->RTPStream()->getLocalAddress();
+                answer.conn.address = a->RTPStream()->getEndpoint()->getLocalAddress();
         } else {
             if (b)
-                answer.conn.address = b->RTPStream()->getLocalAddress();
+                answer.conn.address = b->RTPStream()->getEndpoint()->getLocalAddress();
         }
         if (answer.conn.address.empty())
             answer.conn.address = zero_ip; // we need something there

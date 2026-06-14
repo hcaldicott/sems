@@ -22,22 +22,44 @@ class AmStreamConnectionMock : public AmStreamConnection {
 
 class AmMediaTransportMock : public AmMediaTransport {
   public:
-    explicit AmMediaTransportMock(AmRtpStream *stream, std::function<void(AmRtpPacket *)> send_callback)
-        : AmMediaTransport(stream, 0, 0, 0)
+    explicit AmMediaTransportMock(AmMediaEndpoint *endpoint, std::function<void(AmRtpPacket *)> send_callback)
+        : AmMediaTransport(endpoint, 0, 0, RTP_TRANSPORT)
     {
         setCurRtpConn(new AmStreamConnectionMock(this, send_callback));
     }
 };
 
-class AmRtpStreamMock : public AmRtpStream {
+// the transport now lives on the endpoint, so the mock stream supplies a mock endpoint
+class AmMediaEndpointMock : public AmMediaEndpoint {
     std::unique_ptr<AmMediaTransportMock> _transport;
 
   public:
-    explicit AmRtpStreamMock(std::function<void(AmRtpPacket *)> send_callback)
-        : AmRtpStream(nullptr, 0)
+    AmMediaEndpointMock(AmRtpStream *stream, std::function<void(AmRtpPacket *)> send_callback)
+        : AmMediaEndpoint(stream, nullptr, 0)
     {
         _transport.reset(new AmMediaTransportMock(this, send_callback));
-        cur_rtp_trans = _transport.get();
+        setCurrentTransport(_transport.get());
+    }
+};
+
+class AmRtpStreamMock : public AmRtpStream {
+    std::function<void(AmRtpPacket *)> send_callback;
+    std::unique_ptr<AmMediaEndpoint>   owned_endpoint; // session-less: no pool to own the endpoint
+
+  protected:
+    AmMediaEndpoint *createEndpoint() const override
+    {
+        return new AmMediaEndpointMock(const_cast<AmRtpStreamMock *>(this), send_callback);
+    }
+
+  public:
+    explicit AmRtpStreamMock(std::function<void(AmRtpPacket *)> send_callback)
+        : AmRtpStream(nullptr, 0, 0)
+        , send_callback(send_callback)
+    {
+        // there is no session here to take ownership, so seed the endpoint now and own it locally
+        owned_endpoint.reset(createEndpoint());
+        endpoint = owned_endpoint.get();
     }
 };
 

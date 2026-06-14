@@ -14,7 +14,7 @@ using namespace Rtsp;
 static const int RTP_TIMEOUT_SEC = 1;
 
 RtspAudio::RtspAudio(AmSession *_s, const string &uri, int samplerate_hint)
-    : AmRtpAudio(_s, RtspClient::instance()->getRtpInterface())
+    : AmRtpAudio(_s, RtspClient::instance()->getRtpInterface(), 0)
     , agent(RtspClient::instance())
     ,
     //    md(0),
@@ -29,7 +29,7 @@ RtspAudio::RtspAudio(AmSession *_s, const string &uri, int samplerate_hint)
     AmRtpStream::setRtpTimeout(RTP_TIMEOUT_SEC);
     sockaddr_storage ss;
     am_inet_pton(agent->localMediaIP().c_str(), &ss);
-    AmRtpAudio::setLocalIP(ss.ss_family == AF_INET ? AT_V4 : AT_V6);
+    getEndpoint()->setLocalIP(ss.ss_family == AF_INET ? AT_V4 : AT_V6);
 
     open(uri, samplerate);
 }
@@ -146,7 +146,7 @@ void RtspAudio::rtsp_play(const RtspMsg &msg)
     }
 }
 
-void RtspAudio::initIP4Transport()
+void RtspMediaEndpoint::initIP4Transport()
 {
     if (!ip4_transports.empty()) {
         return;
@@ -163,14 +163,14 @@ void RtspAudio::initIP4Transport()
     rtcp->setTransportType(RTCP_TRANSPORT);
 }
 
-void RtspAudio::initIP6Transport()
+void RtspMediaEndpoint::initIP6Transport()
 {
     throw string("not supported yet");
 }
 
 bool RtspAudio::initSdpAnswer()
 {
-    setLocalIP(
+    getEndpoint()->setLocalIP(
         AmConfig.getMediaProtoInfo(RtspClient::instance()->getRtpInterface(), RtspClient::instance()->getRtpProtoId())
             .type_ip);
     if (offer.media.empty()) {
@@ -201,7 +201,7 @@ bool RtspAudio::initSdpAnswer()
 
     SdpMedia &answer_media = answer.media.back();
 
-    AmRtpAudio::getSdpAnswer(0, offer_media, answer_media);
+    AmRtpAudio::getSdpAnswer(offer_media, answer_media);
 
     if (answer_media.payloads.empty()) {
         ERROR("no compatible payload");
@@ -254,7 +254,7 @@ int RtspAudio::initRtpAudio_by_sdp(const char *sdp_msg)
     AmRtpAudio::init(answer, offer, true, false);
     resumeReceiving();
 
-    return getLocalPort();
+    return getEndpoint()->getLocalPort();
 }
 
 

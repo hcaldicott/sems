@@ -25,6 +25,7 @@
 #include "sip/ssl_settings.h"
 
 class AmRtpStream;
+class AmMediaEndpoint;
 class AmRtpPacket;
 class AmMediaState;
 
@@ -52,7 +53,7 @@ class AmMediaTransport : public AmMediaConnectionsHolder,
   public:
     enum Mode { TRANSPORT_MODE_DEFAULT, TRANSPORT_MODE_FAX, TRANSPORT_MODE_DTLS_FAX, TRANSPORT_MODE_RAW };
 
-    AmMediaTransport(AmRtpStream * _stream, int _if, int _proto_id, int type);
+    AmMediaTransport(AmMediaEndpoint * _endpoint, int _if, int _proto_id, int type);
     virtual ~AmMediaTransport();
 
     template <class T> void updateState(AmMediaStateArgs & args)
@@ -233,9 +234,9 @@ class AmMediaTransport : public AmMediaConnectionsHolder,
     sockaddr_storage *getAllowedIceAddr();
     void              getInfo(AmArg & ret);
 
-    AmRtpStream *getRtpStream()
+    AmMediaEndpoint *getEndpoint()
     {
-        return stream;
+        return endpoint;
     }
     AmMediaConnectionFactory *getConnFactory()
     {
@@ -274,8 +275,8 @@ class AmMediaTransport : public AmMediaConnectionsHolder,
     Mode  mode;
     Setup setup_mode;
 
-    /** Stream owning this transport */
-    AmRtpStream                       *stream;
+    /** Endpoint owning this transport (1:1) */
+    AmMediaEndpoint                   *endpoint;
     ReferenceGuard<AmStreamConnection> getSuitableConnection(bool rtcp);
     IceContext                        *getIceContext();
 

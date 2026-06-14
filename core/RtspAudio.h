@@ -10,6 +10,22 @@ class RtspClient;
 using Rtsp::RtspMsg;
 using Rtsp::RtspSession;
 
+/** RTSP media endpoint: transports created on the RtspClient interface/proto, IPv4 only. */
+class RtspMediaEndpoint : public AmMediaEndpoint {
+  protected:
+    void initIP4Transport() override;
+    void initIP6Transport() override;
+
+  public:
+    RtspMediaEndpoint(AmRtpStream *s, AmSession *sess, int iface)
+        : AmMediaEndpoint(s, sess, iface)
+    {
+    }
+
+    bool isZrtpEnabled() const override { return false; }
+    void onTransportEstablished() override {}
+};
+
 class RtspAudio : public AmRtpAudio {
     typedef enum { Ready = 0, Progress, Playing } State;
 
@@ -29,8 +45,6 @@ class RtspAudio : public AmRtpAudio {
     // RtspMsg             req;
 
   private:
-    void initIP4Transport() override;
-    void initIP6Transport() override;
     bool initSdpAnswer();
     void initRtpAudio(unsigned short int r_rtp_port);
     int  initRtpAudio_by_sdp(const char *sdp_msg);
@@ -42,7 +56,12 @@ class RtspAudio : public AmRtpAudio {
 
     void onRtpTimeout() override;
     void onMaxRtpTimeReached() override;
-    void onTransportEstablished() override {}
+
+    // supply the Rtsp-specific endpoint type (lazily created via AmRtpStream::getEndpoint())
+    AmMediaEndpoint *createEndpoint() const override
+    {
+        return new RtspMediaEndpoint(const_cast<RtspAudio *>(this), session, l_if);
+    }
 
   public:
     RtspAudio(AmSession *_s, const string &uri, int samplerate_hint = 0);
@@ -57,6 +76,4 @@ class RtspAudio : public AmRtpAudio {
     void checkState(uint64_t timeout);
     void onRtspMessage(const RtspMsg &msg);
     void onRtspPlayNotify(const RtspMsg &msg);
-
-    bool isZrtpEnabled() override { return false; }
 };

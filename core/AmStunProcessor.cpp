@@ -70,13 +70,13 @@ void AmStunProcessor::add_ice_context(IceContext *context)
             return;
     }
 
-    DBG("AmStunProcessor::add ice context type: %d, stream %p", context->getType(), context->getStream());
+    DBG("AmStunProcessor::add ice context type: %d, endpoint %p", context->getType(), context->getEndpoint());
     contexts.push_back(context);
 }
 
 void AmStunProcessor::remove_ice_context(IceContext *context)
 {
-    DBG("AmStunProcessor::remove ice context type: %d, stream %p", context->getType(), context->getStream());
+    DBG("AmStunProcessor::remove ice context type: %d, endpoint %p", context->getType(), context->getEndpoint());
     AmLock l(connections_mutex);
     auto   ctx = contexts.begin();
     while (ctx != contexts.end()) {

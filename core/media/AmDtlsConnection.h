@@ -119,6 +119,7 @@ class srtp_fingerprint_p {
 struct DtlsContext;
 class AmDtlsConnection;
 class AmRtpStream;
+class AmMediaEndpoint;
 
 struct DtlsHandshakeStat {
     int            transport_type;
@@ -182,14 +183,14 @@ class RtpSecureContext : public Botan::TLS::Callbacks, public DtlsContext {
 
     DtlsTimer *pending_handshake_timer;
 
-    AmRtpStream      *rtp_stream;
+    AmMediaEndpoint  *endpoint;
     AmDtlsConnection *cur_conn;
 
     struct timeval handshake_start;
     struct timeval handshake_done;
 
   public:
-    RtpSecureContext(AmRtpStream *stream, const srtp_fingerprint_p &_fingerprint, bool client);
+    RtpSecureContext(AmMediaEndpoint *endpoint, const srtp_fingerprint_p &_fingerprint, bool client);
     ~RtpSecureContext() noexcept;
 
     void initContext(const string &host, int port, shared_ptr<dtls_conf> settings,

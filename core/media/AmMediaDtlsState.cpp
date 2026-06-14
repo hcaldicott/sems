@@ -1,5 +1,5 @@
 #include "AmMediaDtlsState.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 #include "AmMediaSrtpState.h"
 #include "AmMediaSecureUdptlState.h"
 
@@ -36,7 +36,7 @@ void AmMediaDtlsState::addConnections(const AmMediaStateArgs &args)
     if (transport->getConnection(pred))
         return;
 
-    auto dtls_context = transport->getRtpStream()->getDtlsContext(transport->getTransportType());
+    auto dtls_context = transport->getEndpoint()->getDtlsContext(transport->getTransportType());
     if (!dtls_context)
         return;
     CLASS_DBG("add dtls connection, state:%s, type:%s, raddr:%s, rport:%d", state2str(), transport->type2str(),

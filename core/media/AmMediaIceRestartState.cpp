@@ -1,7 +1,7 @@
 #include "AmMediaIceRestartState.h"
 #include "AmMediaState.h"
 #include "AmMediaTransport.h"
-#include "AmRtpStream.h"
+#include "AmMediaEndpoint.h"
 
 AmMediaIceRestartState::AmMediaIceRestartState(AmMediaTransport *transport)
     : AmMediaState(transport)
@@ -11,8 +11,8 @@ AmMediaIceRestartState::AmMediaIceRestartState(AmMediaTransport *transport)
 
 AmMediaState *AmMediaIceRestartState::init(const AmMediaStateArgs &args)
 {
-    if (auto *stream = transport->getRtpStream())
-        stream->clearEstablished();
+    if (auto *ep = transport->getEndpoint())
+        ep->clearEstablished();
     return AmMediaIceState::init(args);
 }
 

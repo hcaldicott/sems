@@ -3,6 +3,7 @@
 #include "AmEvent.h"
 
 #include <string>
+#include <vector>
 
 /** \brief event fired on RTP timeout */
 class AmRtpTimeoutEvent : public AmEvent {
@@ -35,21 +36,22 @@ class AmIceConnectivityFailedEvent : public AmEvent {
 };
 
 /**
- * \brief event fired once per media session when the media path becomes usable:
+ * \brief event fired once per media endpoint when the transport path becomes usable:
  *  - plain RTP/SRTP/UDPTL: current connection picked on the transport;
  *  - DTLS+RTP / DTLS+UDPTL / ZRTP: after SRTP keys are negotiated;
  *  - ICE RTP/SRTP/UDPTL: after a candidate pair is nominated;
  *  - ICE DTLS/ZRTP variants: after SRTP keys are negotiated.
- * Re-armed on ICE restart. setup_time_ms — duration from RTP stream
- * construction (or last ICE-restart re-arm) to event fire, in milliseconds.
+ * Re-armed on ICE restart.
  */
 class MediaEstablishedEvent : public AmEvent {
   public:
-    unsigned long setup_time_ms;
+    unsigned long    setup_time_ms;
+    std::vector<int> media_indexes;
 
-    explicit MediaEstablishedEvent(unsigned long setup_ms)
+    MediaEstablishedEvent(unsigned long setup_ms, std::vector<int> indexes)
         : AmEvent(0)
         , setup_time_ms(setup_ms)
+        , media_indexes(std::move(indexes))
     {
     }
     ~MediaEstablishedEvent() {}

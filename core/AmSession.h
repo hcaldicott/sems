@@ -47,11 +47,15 @@
 #include <vector>
 #include <queue>
 #include <map>
+#include <list>
+#include <functional>
+using std::list;
 using std::string;
 using std::vector;
 
 class AmSessionFactory;
 class AmDtmfEvent;
+class AmMediaTransaction;
 
 /** @file AmSession.h */
 
@@ -146,8 +150,23 @@ class AmSession : public virtual AmObject,
     friend class AmSessionFactory;
     friend class AmSessionProcessorThread;
 
-    unique_ptr<AmRtpAudio> _rtp_str;
-    AmRtpStream           *referencing_rtp_str;
+    // endpoint lifetime pool: the session owns every endpoint its streams use.
+    // Ownership is handed over once, at creation;
+    // the endpoint then lives here until the session ends.
+    list<unique_ptr<AmMediaEndpoint>> _endpoints;
+
+    // one slot per m= line. stream==nullptr is an empty placeholder kept only to hold the m= line
+    // position (a rejected/unsupported offer line) without allocating a full AmRtpAudio.
+    struct RtpStreamSlot {
+        unique_ptr<AmRtpAudio> stream;
+        MediaType              type; // empty slot only: m= type/transport for the port-0 line
+        TransProt              transport;
+    };
+    list<RtpStreamSlot> _rtp_streams;
+    AmRtpStream        *referencing_rtp_str;
+
+    /** in-flight media reconfiguration; committed/rolled back on the re-INVITE result */
+    unique_ptr<AmMediaTransaction> media_txn;
 
     /** Application parameters passed through P-App-Param HF */
     map<string, string> app_params;
@@ -174,9 +193,6 @@ class AmSession : public virtual AmObject,
     /** media type **/
     MediaType media_type;
 
-    /** reuse media slot for fax*/
-    bool reuse_media_slot;
-
     /** use ice protocol in media stream **/
     bool use_ice_media_stream;
 
@@ -188,6 +204,9 @@ class AmSession : public virtual AmObject,
 
     /** offer BUNDLE (RFC 9143) on the session's media streams **/
     bool use_bundle_media_stream;
+
+    /** SDP-build transient: gates bundle on first MT_AUDIO only (single-leg can't multiplex) */
+    bool audio_1st_stream;
 
     /** use rtcp multiplexing in media stream **/
     bool rtcp_multiplexing;
@@ -234,9 +253,18 @@ class AmSession : public virtual AmObject,
     /** update selected session refresh method from remote capabilities */
     void updateRefreshMethod(const string &headers);
 
-    AmRtpAudio *RTPStream();
-    bool        hasRtpStream() { return _rtp_str.get() != NULL; }
-    AmRtpAudio *releaseRtpStream() { return _rtp_str.release(); }
+    // media_idx selects the stream serving that m= line; the primary (0) is created lazily on first use
+    AmRtpAudio *RTPStream(unsigned media_idx = 0);
+    bool        hasRtpStream(unsigned media_idx = 0);
+    AmRtpAudio *addRtpStream();               // create a new stream for the next m= line
+    AmRtpAudio *addRtpStream(AmRtpAudio * s); // adopt a pre-built stream (its index is already set)
+    // build a new stream for the next m= line WITHOUT adding it (staged in a media transaction, adopted on commit)
+    AmRtpAudio *createDetachedRtpStream() { return new AmRtpAudio(this, rtp_interface, (int)_rtp_streams.size()); }
+    void addEmptyRtpSlot(MediaType type, TransProt transport) { _rtp_streams.push_back({ nullptr, type, transport }); }
+    void forEachRtpStream(const std::function<void(AmRtpAudio *, MediaType, TransProt)> &fn);
+
+    // hand an endpoint's ownership to the session (once, at creation/commit); it lives until the session ends
+    AmMediaEndpoint *addMediaEndpoint(AmMediaEndpoint * ep);
 
     /** must be set before session is started! i.e. in constructor */
     bool enable_zrtp;
@@ -332,7 +360,14 @@ class AmSession : public virtual AmObject,
 
     MediaType getMediaType() const { return media_type; }
     void      setMediaType(MediaType type);
-    void      setReuseMediaSlot(bool reuse_media);
+
+    /** Media reconfiguration (audio<->T.38, bundle re-INVITE). The module builds the transaction
+     *  (what to stage, how to bind); the core commits it on a successful answer or rolls it back
+     *  (recovering the previous media) on a rejected one. */
+    void setMediaTransaction(unique_ptr<AmMediaTransaction> txn);
+    void commitMediaTransaction();
+    void rollbackMediaTransaction();
+    void restoreMedia(const AmSdp &prev_local_sdp);
 
     bool isUseIceMediaStream() const { return use_ice_media_stream; }
     void useIceMediaStream() { use_ice_media_stream = true; }
@@ -343,14 +378,14 @@ class AmSession : public virtual AmObject,
     bool isIceAllowNoCandidates() const { return ice_allow_no_candidates; }
     void setIceAllowNoCandidates(bool v) { ice_allow_no_candidates = v; }
 
-    bool isBundleMediaStream() const { return use_bundle_media_stream; }
+    bool isBundleMediaStream() const { return use_bundle_media_stream && audio_1st_stream; }
     void enableBundleMediaStream() { use_bundle_media_stream = true; }
 
     void setRtcpMultiplexing(bool multiplexing)
     {
         rtcp_multiplexing = multiplexing;
         if (hasRtpStream())
-            RTPStream()->setMultiplexing(multiplexing);
+            RTPStream()->getEndpoint()->setMultiplexing(multiplexing);
     }
     bool isRtcpMultiplexing() { return rtcp_multiplexing; }
 
@@ -694,7 +729,7 @@ class AmSession : public virtual AmObject,
     virtual void onIceConnectivityFailed();
 
     /** This callback is called once per media session when the media path becomes usable */
-    virtual void onMediaEstablished(unsigned long setup_time_ms);
+    virtual void onMediaEstablished(unsigned long setup_time_ms, const std::vector<int> &media_indexes);
 
     /** This callback is called if session
         timeout encountered (session timers) */
@@ -754,7 +789,13 @@ class AmSession : public virtual AmObject,
     virtual int  readStreams(unsigned long long ts, unsigned char *buffer) override;
     virtual int  writeStreams(unsigned long long ts, unsigned char *buffer) override;
     virtual void ping(unsigned long long ts) override;
-    virtual void clearRTPTimeout() override { RTPStream()->clearRTPTimeout(); }
+    virtual void clearRTPTimeout() override
+    {
+        forEachRtpStream([](AmRtpAudio *stream, MediaType, TransProt) {
+            if (stream && !stream->isDisabled())
+                stream->clearRTPTimeout();
+        });
+    }
     virtual void processDtmfEvents() override;
 
     /**
@@ -777,14 +818,6 @@ class AmSession : public virtual AmObject,
     bool getSdpOfferOwner() { return sdp_offer_owner; }
 };
 
-inline AmRtpAudio *AmSession::RTPStream()
-{
-    if (NULL == _rtp_str.get()) {
-        DBG("creating RTP stream instance for session [%p]", this);
-        _rtp_str.reset(new AmRtpAudio(this, rtp_interface));
-    }
-    return _rtp_str.get();
-}
 
 /* RAII guard over AmSession::lockAudio()/unlockAudio(), serializing access to a
  * session's audio chain (input/output, RTP stream, codec) against its

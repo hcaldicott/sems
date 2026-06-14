@@ -1,11 +1,11 @@
 #include "AmMediaTransport.h"
+#include "AmMediaEndpoint.h"
 #include "media/AmMediaState.h"
 #include "AmFaxImage.h"
 #include "AmZrtpConnection.h"
 #include "AmRtpReceiver.h"
 #include "AmRtpPacket.h"
 #include "AmSession.h"
-#include "AmRtpStream.h"
 #include "AmLcConfig.h"
 #include "sip/raw_sender.h"
 
@@ -18,12 +18,12 @@
 #define ZRTP_MAGIC_COOKIE  0x5a525450
 
 
-AmMediaTransport::AmMediaTransport(AmRtpStream *_stream, int _if, int _proto_id, int _type)
+AmMediaTransport::AmMediaTransport(AmMediaEndpoint *_endpoint, int _if, int _proto_id, int _type)
     : state(nullptr)
     , conn_factory(this)
     , mode(TRANSPORT_MODE_DEFAULT)
     , setup_mode(S_UNDEFINED)
-    , stream(_stream)
+    , endpoint(_endpoint)
     , logger(nullptr)
     , sensor(nullptr)
     , type(_type)
@@ -61,7 +61,8 @@ AmMediaTransport::AmMediaTransport(AmRtpStream *_stream, int _if, int _proto_id,
     dtls_enable               = srtp_enable && media_if.srtp->dtls_enable;
     zrtp_enable               = srtp_enable && media_if.srtp->zrtp_enable;
 
-    stream->getMediaAcl(media_acl);
+    if (auto sess = endpoint->getSession())
+        sess->getMediaAcl(media_acl);
 }
 
 AmMediaTransport::~AmMediaTransport()
@@ -125,7 +126,7 @@ void AmMediaTransport::markEstablish()
     if (media_establish)
         return;
     media_establish = true;
-    stream->onTransportEstablished();
+    endpoint->onTransportEstablished();
 }
 
 void AmMediaTransport::clearEstablish()
@@ -135,7 +136,7 @@ void AmMediaTransport::clearEstablish()
 
 void AmMediaTransport::resetStreamMediaSetupTimer()
 {
-    stream->resetMediaSetupTimer();
+    endpoint->resetMediaSetupTimer();
 }
 
 void AmMediaTransport::onCloseDtlsSession()
@@ -263,7 +264,7 @@ ReferenceGuard<AmStreamConnection> AmMediaTransport::getSuitableConnection(bool 
 
 IceContext *AmMediaTransport::getIceContext()
 {
-    return stream->getIceContext(type);
+    return endpoint->getIceContext(type);
 }
 
 string AmMediaTransport::getRHost(bool rtcp)
@@ -451,9 +452,9 @@ void AmMediaTransport::getSdpOffer(SdpMedia &offer)
     } break;
     default:
 #ifdef WITH_ZRTP
-        if (stream->isZrtpEnabled() && zrtp_enable) {
-            stream->initZrtp();
-            offer.zrtp_hash.hash = stream->getZrtpContext()->getLocalHash();
+        if (endpoint->isZrtpEnabled() && zrtp_enable) {
+            endpoint->initZrtp();
+            offer.zrtp_hash.hash = endpoint->getZrtpContext()->getLocalHash();
             if (!offer.zrtp_hash.hash.empty())
                 offer.zrtp_hash.is_use = true;
         }
@@ -475,7 +476,8 @@ void AmMediaTransport::getSdpAnswer(const SdpMedia &offer, SdpMedia &answer)
     if ((offer.is_simple_srtp() && !srtp_enable) || (offer.is_dtls_srtp() && !dtls_enable)) {
         std::string error(offer.is_simple_srtp() ? "SRTP" : "DTLS");
         error += " transport is not supported";
-        CLASS_ERROR("[%s] %s on interface(%d/%s)", stream ? stream->getSessionLocalTag() : "null", error.c_str(), l_if,
+        auto sess = endpoint->getSession();
+        CLASS_ERROR("[%s] %s on interface(%d/%s)", sess ? sess->getLocalTag().data() : "null", error.c_str(), l_if,
                     AmConfig.media_ifs[l_if].proto_info[lproto_id]->transportToStr().c_str());
         throw AmSession::Exception(488, error);
     } else if (transport == TP_RTPSAVP || transport == TP_RTPSAVPF) {
@@ -539,9 +541,9 @@ void AmMediaTransport::getSdpAnswer(const SdpMedia &offer, SdpMedia &answer)
         answer.payloads.clear();
         answer.fmt = T38_FMT;
 #ifdef WITH_ZRTP
-    } else if (stream->isZrtpEnabled() && zrtp_enable && offer.zrtp_hash.is_use) {
-        stream->initZrtp();
-        answer.zrtp_hash.hash = stream->getZrtpContext()->getLocalHash();
+    } else if (endpoint->isZrtpEnabled() && zrtp_enable && offer.zrtp_hash.is_use) {
+        endpoint->initZrtp();
+        answer.zrtp_hash.hash = endpoint->getZrtpContext()->getLocalHash();
         if (!answer.zrtp_hash.hash.empty())
             answer.zrtp_hash.is_use = true;
 #endif /*WITH_ZRTP*/
@@ -604,11 +606,12 @@ void AmMediaTransport::getInfo(AmArg &ret)
 void AmMediaTransport::dtls_alert(const Botan::TLS::Alert &alert)
 {
     if (alert.type() == Botan::TLS::Alert::CloseNotify) {
-        stream->onCloseDtlsSession(getTransportType());
+        endpoint->onCloseDtlsSession(getTransportType());
         return;
     }
 
-    CLASS_ERROR("DTLS local_tag:%s, alert:%s", stream->getSessionLocalTag(), alert.type_string().c_str());
+    auto sess = endpoint->getSession();
+    CLASS_ERROR("DTLS local_tag:%s, alert:%s", sess ? sess->getLocalTag().data() : "null", alert.type_string().c_str());
 }
 
 void AmMediaTransport::onRtpPacket(AmRtpPacket *packet, AmStreamConnection *conn)
@@ -620,7 +623,7 @@ void AmMediaTransport::onRtpPacket(AmRtpPacket *packet, AmStreamConnection *conn
         if (state)
             state->markEstablishIfReady();
     }
-    stream->onRtpPacket(packet, this);
+    endpoint->onRtpPacket(packet, this);
 }
 
 void AmMediaTransport::onRtcpPacket(AmRtpPacket *packet, AmStreamConnection *conn)
@@ -632,14 +635,14 @@ void AmMediaTransport::onRtcpPacket(AmRtpPacket *packet, AmStreamConnection *con
         if (state)
             state->markEstablishIfReady();
     }
-    stream->onRtcpPacket(packet, this);
+    endpoint->onRtcpPacket(packet, this);
 }
 
 void AmMediaTransport::onRawPacket(AmRtpPacket *packet, AmStreamConnection *conn)
 {
     if (mode == TRANSPORT_MODE_DEFAULT) {
         onPacket(packet->getBuffer(), packet->getBufferSize(), packet->saddr, packet->recv_time);
-        stream->freeRtpPacket(packet);
+        endpoint->freeRtpPacket(packet);
     } else if (mode == TRANSPORT_MODE_FAX || mode == TRANSPORT_MODE_DTLS_FAX) {
         setCurUdptlConn(conn);
         if (!media_establish) {
@@ -647,10 +650,10 @@ void AmMediaTransport::onRawPacket(AmRtpPacket *packet, AmStreamConnection *conn
             if (state)
                 state->markEstablishIfReady();
         }
-        stream->onUdptlPacket(packet, this);
+        endpoint->onUdptlPacket(packet, this);
     } else {
         setCurRawConn(conn);
-        stream->onRawPacket(packet, this);
+        endpoint->onRawPacket(packet, this);
     }
 }
 
@@ -659,7 +662,7 @@ void AmMediaTransport::stopReceiving()
     AmLock l1(stream_mut);
     CLASS_DBG("stopReceiving() l_sd:%d, state:%s, type:%s", l_sd, state2str(), type2str());
     if (hasLocalSocket() && state) {
-        CLASS_DBG("remove stream %p %s transport from RTP receiver", to_void(stream), type2str());
+        CLASS_DBG("remove media endpoint %p %s transport from RTP receiver", to_void(endpoint), type2str());
         AmRtpReceiver::instance()->removeStream(getLocalSocket(), l_sd_ctx);
         l_sd_ctx = -1;
     }
@@ -670,7 +673,7 @@ void AmMediaTransport::resumeReceiving()
     AmLock l1(stream_mut);
     CLASS_DBG("resumeReceiving() l_sd:%d, state:%s, type:%s", l_sd, state2str(), type2str());
     if (hasLocalSocket() && state) {
-        CLASS_DBG("add/resume stream %p %s transport into RTP receiver", to_void(stream), type2str());
+        CLASS_DBG("add/resume media endpoint %p %s transport into RTP receiver", to_void(endpoint), type2str());
         l_sd_ctx = AmRtpReceiver::instance()->addStream(l_sd, this, l_sd_ctx);
         if (l_sd_ctx < 0) {
             CLASS_DBG("error on add/resuming stream. l_sd_ctx = %d", l_sd_ctx);
@@ -726,7 +729,7 @@ ssize_t AmMediaTransport::send(AmRtpPacket *packet, AmStreamConnection::Connecti
     }
 
     if (ret > 0) {
-        stream->update_sender_stats(*packet);
+        endpoint->update_sender_stats(*packet);
     }
 
     return ret;
@@ -855,7 +858,7 @@ void AmMediaTransport::recvPacket(int fd)
         if (action == trsp_acl::Allow)
             onPacket(buffer, b_size, saddr, recv_time);
         else {
-            stream->inc_drop_pack();
+            endpoint->inc_drop_pack();
             AmRtpReceiver::instance()->inc_drop_packets();
         }
     }
@@ -863,7 +866,7 @@ void AmMediaTransport::recvPacket(int fd)
 
 void AmMediaTransport::onPacket(unsigned char *buf, unsigned int size, sockaddr_storage &addr, struct timeval recvtime)
 {
-    stream->updateRcvdBytes(size);
+    endpoint->updateRcvdBytes(size);
     AmStreamConnection::ConnectionType ctype;
     if (mode == TRANSPORT_MODE_DEFAULT) {
         ctype = GetConnectionType(buf, size);
@@ -890,7 +893,7 @@ void AmMediaTransport::onPacket(unsigned char *buf, unsigned int size, sockaddr_
         findConnection([&](auto conn) { return conn->isUseConnection(ctype); }, [&](auto conn) { s_conn = conn; });
 
     if (!s_conn) {
-        if (ctype == AmStreamConnection::STUN_CONN && stream->isIceStream()) {
+        if (ctype == AmStreamConnection::STUN_CONN && endpoint->isIceStream()) {
             const uint32_t lpriority = (ICT_HOST << 24) | ((rand() & 0xffff) << 8) | (256 - type);
             const string   addr_str  = am_inet_ntop(&addr);
             const int      port      = am_get_port(&addr);

@@ -37,6 +37,11 @@
 #include "sip/msg_sensor.h"
 #include "rtcp/RtcpStat.h"
 #include "rtcp/RtcpPacket.h"
+#include "bitops.h"
+#include "log.h"
+
+#include <climits>
+#include <cassert>
 
 class AmRtpPacketTracer;
 class AmSrtpConnection;
@@ -129,6 +134,54 @@ class AmRtpPacket {
     bool addHeaderExtension(uint8_t id, const unsigned char *value, uint8_t len);
     void clearHeaderExtensions() { pending_ext_count = 0; }
     bool getHeaderExtension(uint8_t id, unsigned char *out, size_t out_cap, size_t &out_len) const;
+};
+
+#define RTP_STREAM_BUF_PACKETS_COUNT 32
+
+/**
+ * This provides the memory for the receive buffer (pool of AmRtpPacket).
+ */
+template <int packets_count> class PacketMem {
+#define PacketMemUsedClearMask (~(ULONG_MAX >> (BITS_PER_LONG - packets_count)))
+    AmRtpPacket   packets[packets_count];
+    unsigned long used; // used packets bitmask
+  public:
+    PacketMem()
+        : used(PacketMemUsedClearMask)
+    {
+    }
+    AmRtpPacket *newPacket()
+    {
+        if (!(~(used)))
+            return nullptr;
+
+        for (int i = 0; i < packets_count; i++) {
+            if (!test_and_set_bit(i, &used)) {
+                return &packets[i];
+            }
+        }
+
+        return nullptr;
+    }
+    void freePacket(AmRtpPacket *p)
+    {
+        if (!p)
+            return;
+
+        int idx = p - packets;
+
+        assert(idx >= 0);
+        assert(idx < packets_count);
+
+        clear_bit(idx, &used);
+        __sync_synchronize();
+    }
+    void clear()
+    {
+        used = PacketMemUsedClearMask;
+        __sync_synchronize();
+    }
+    void debug() { DBG("used: 0x%lx", used); }
 };
 
 #endif
