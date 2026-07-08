@@ -104,7 +104,7 @@ int Mixer::bind_socket()
 bool Mixer::resolve_name(const string &address, sockaddr_storage &_sa)
 {
     dns_handle _dh;
-    bool       res = resolver::instance()->resolve_name(address.c_str(), &_dh, &_sa, IPv4_only) != -1;
+    bool       res = resolver::instance()->resolve_name(address, &_dh, &_sa, IPv4_only) != -1;
 
     if (!res)
         ERROR("can't resolve destination: '%s'", address.c_str());

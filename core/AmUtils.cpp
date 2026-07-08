@@ -992,7 +992,7 @@ int get_local_addr_for_dest(const string &remote_ip, string &local, dns_priority
     if (err == 0) {
         // not an IP... try a name.
         dns_handle dh;
-        err = resolver::instance()->resolve_name(remote_ip.c_str(), &dh, &remote_ip_ss, priority);
+        err = resolver::instance()->resolve_name(remote_ip, &dh, &remote_ip_ss, priority);
     }
 
     if (err == -1) {

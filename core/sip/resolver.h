@@ -41,6 +41,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <string_view>
 using std::map;
 using std::string;
 using std::vector;
@@ -274,12 +275,12 @@ class _resolver : public AmThread {
     // negative-cache TTL (seconds) for unreachable-DNS failures; 0 disables
     static unsigned int blacklist_ttl;
 
-    int resolve_name(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
+    int resolve_name(const std::string_view &name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
                      dns_rr_type rr_type = dns_r_ip);
 
-    int str2ip(const char *name, sockaddr_storage *sa, const address_type types);
+    int str2ip(const std::string_view &name, sockaddr_storage *sa, const address_type types);
 
-    int query_dns(const char *name, dns_rr_type rr_type, address_type addr_type);
+    int query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type);
 
     /**
      * Transforms all elements of a destination list into
@@ -297,12 +298,12 @@ class _resolver : public AmThread {
     ~_resolver();
     void dispose();
 
-    int set_destination_ip(const cstring &next_scheme, const cstring &next_hop, unsigned short next_port,
-                           const cstring &next_trsp, sockaddr_storage *remote_ip, dns_priority priority,
-                           dns_handle *h_dns);
+    static int set_destination_ip(const cstring &next_scheme, const cstring &next_hop, unsigned short next_port,
+                                  const cstring &next_trsp, sockaddr_storage *remote_ip, dns_priority priority,
+                                  dns_handle *h_dns);
 
-    int resolve_name_cache(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
-                           dns_rr_type &rr_type);
+    int resolve_name_cache(const std::string_view &name, dns_handle *h, sockaddr_storage *sa,
+                           const dns_priority priority, dns_rr_type &rr_type);
 
     void run();
     void on_stop() { b_stop.set(true); }

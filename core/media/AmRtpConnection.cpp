@@ -126,7 +126,7 @@ void AmStreamConnection::resolveRemoteAddress(const string &remote_addr, int rem
     if (addr_type == AT_V6) {
         priority = IPv6_only;
     }
-    if (!remote_addr.empty() && resolver::instance()->resolve_name(remote_addr.c_str(), &dh, &ss, priority) < 0) {
+    if (!remote_addr.empty() && resolver::instance()->resolve_name(remote_addr, &dh, &ss, priority) < 0) {
         WARN("Address not valid (host: %s).", remote_addr.c_str());
         throw string("invalid address") + remote_addr;
     }

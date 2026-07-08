@@ -365,8 +365,7 @@ class dns_srv_entry : public dns_entry {
             ntohs(reinterpret_cast<sockaddr_in *>(sa)->sin_port));
 
         dns_handle tmp_handle;
-        if ((resolver::instance()->resolve_name(e->target.c_str(), &tmp_handle, sa, priority) >= 0) && tmp_handle.ip_e)
-        {
+        if ((resolver::instance()->resolve_name(e->target, &tmp_handle, sa, priority) >= 0) && tmp_handle.ip_e) {
             const auto &indexes = tmp_handle.ip_indexes; // See dns_ip_entry::sort_by_priority()
             const auto &v       = tmp_handle.ip_e->ip_vec;
 
@@ -714,11 +713,11 @@ dns_entry *dns_cname_entry::resolve_alias(dns_cache &cache, const dns_priority p
 
     switch (rr_type) {
     case dns_r_ip:
-        resolver::instance()->query_dns(target.c_str(), rr_type, IPv4);
-        resolver::instance()->query_dns(target.c_str(), rr_type, IPv6);
+        resolver::instance()->query_dns(target, rr_type, IPv4);
+        resolver::instance()->query_dns(target, rr_type, IPv6);
         break;
     default:
-        if (resolver::instance()->query_dns(target.c_str(), rr_type, IPnone) < 0) {
+        if (resolver::instance()->query_dns(target, rr_type, IPnone) < 0) {
             return nullptr;
         }
     }
@@ -1174,67 +1173,64 @@ class dns_negative_entry : public dns_entry {
     string          to_str() override { return "negative"; }
 };
 
-int _resolver::query_dns(const char *name, dns_rr_type rr_type, address_type addr_type)
+int _resolver::query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type)
 {
     u_char dns_res[DNS_REPLY_BUFFER_SIZE];
 
-    if (!name)
+    if (name.empty())
         return -1;
 
-    std::string blacklist_key;
     if (blacklist_ttl) {
-        blacklist_key.assign(name);
-
-        dns_bucket *b = cache.get_bucket(hashlittle(blacklist_key.c_str(), blacklist_key.length(), 0));
-        dns_entry  *e = b->find(blacklist_key);
+        dns_bucket *b = cache.get_bucket(hashlittle(name.data(), name.length(), 0));
+        dns_entry  *e = b->find(string{ name });
         if (e) {
             bool negative = e->get_type() == dns_r_negative;
             dec_ref(e);
             if (negative) {
-                DBG3("%s: skip query, FQDN is blacklisted", blacklist_key.c_str());
+                DBG3("%s: skip query, FQDN is blacklisted", name.data());
                 return 0;
             }
         }
     }
 
-    DBG3("Querying '%s' (%s)...", name, dns_rr_type_str(rr_type, addr_type));
+    DBG3("Querying '%s' (%s)...", name.data(), dns_rr_type_str(rr_type, addr_type));
 
     stat_queries_total.inc();
 
     int dns_res_len =
-        res_search(name, ns_c_in, dns_rr_type_tons_type(rr_type, addr_type), dns_res, DNS_REPLY_BUFFER_SIZE);
+        res_search(name.data(), ns_c_in, dns_rr_type_tons_type(rr_type, addr_type), dns_res, DNS_REPLY_BUFFER_SIZE);
 
     if (dns_res_len < 0) {
         switch (h_errno) {
         case HOST_NOT_FOUND:
-            DBG("%s/%d: Unknown domain", name, rr_type);
+            DBG("%s/%d: Unknown domain", name.data(), rr_type);
             stat_queries_search_errors_host_not_found.inc();
             break;
         case NO_DATA:
-            DBG("%s/%d: No records", name, rr_type);
+            DBG("%s/%d: No records", name.data(), rr_type);
             stat_queries_search_errors_no_data.inc();
             break;
         case TRY_AGAIN:
-            DBG("%s/%d: No response for query (try again)", name, rr_type);
+            DBG("%s/%d: No response for query (try again)", name.data(), rr_type);
             stat_queries_search_errors_try_again.inc();
             break;
         case NO_RECOVERY:
-            ERROR("%s/%d: Non recoverable error (FORMERR, REFUSED, NOTIMP)", name, rr_type);
+            ERROR("%s/%d: Non recoverable error (FORMERR, REFUSED, NOTIMP)", name.data(), rr_type);
             stat_queries_search_errors_recovery.inc();
             break;
         default:
-            ERROR("%s/%d: Unexpected error. res_search returned: %d", name, rr_type, h_errno);
+            ERROR("%s/%d: Unexpected error. res_search returned: %d", name.data(), rr_type, h_errno);
             stat_queries_search_errors_unknown.inc();
             break;
         }
 
         if (blacklist_ttl && (h_errno == TRY_AGAIN || h_errno == NO_RECOVERY)) {
             dns_negative_entry *ne = new dns_negative_entry(wheeltimer::instance()->unix_clock.get() + blacklist_ttl);
-            dns_bucket         *b  = cache.get_bucket(hashlittle(blacklist_key.c_str(), blacklist_key.length(), 0));
+            dns_bucket         *b  = cache.get_bucket(hashlittle(name.data(), name.length(), 0));
             inc_ref(ne);
-            b->insert(blacklist_key, ne);
+            b->insert(string{ name }, ne);
             dec_ref(ne);
-            DBG("%s: blacklisted for %u s (DNS unreachable)", blacklist_key.c_str(), blacklist_ttl);
+            DBG("%s: blacklisted for %u s (DNS unreachable)", name.data(), blacklist_ttl);
         }
 
         return 0;
@@ -1291,8 +1287,8 @@ int _resolver::query_dns(const char *name, dns_rr_type rr_type, address_type add
     return 0;
 }
 
-int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
-                            dns_rr_type rr_type)
+int _resolver::resolve_name(const std::string_view &name, dns_handle *h, sockaddr_storage *sa,
+                            const dns_priority priority, dns_rr_type rr_type)
 {
     int ret;
 
@@ -1324,7 +1320,7 @@ int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *s
 
     if (rr_type == dns_r_ip) {
         // first try to detect if 'name' is already an IP address
-        ret = am_inet_pton(name, sa);
+        ret = am_inet_pton(name.data(), sa);
         if (ret == 1) {
             if ((sa->ss_family == AF_INET && priority == IPv6_only) ||
                 (sa->ss_family == AF_INET6 && priority == IPv4_only))
@@ -1344,13 +1340,12 @@ int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *s
     // name is NOT an IP address -> try a cache look up
 
     // omit final dot
-    std::string_view nv{ name };
-    if (nv.ends_with("."))
-        nv.remove_suffix(1);
-    std::string name_norm{ nv };
-    name = name_norm.c_str();
+    // std::string_view nv{ name };
+    auto name_norm{ name };
+    if (name_norm.ends_with("."))
+        name_norm.remove_suffix(1);
 
-    ret = resolve_name_cache(name, h, sa, priority, rr_type);
+    ret = resolve_name_cache(name_norm, h, sa, priority, rr_type);
     if (ret > 0) {
         stat_requests_cached.inc();
         return ret;
@@ -1363,18 +1358,18 @@ int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *s
     // query dns
     switch (rr_type) {
     case dns_r_ip:
-        query_dns(name, rr_type, IPv4);
-        query_dns(name, rr_type, IPv6);
+        query_dns(name_norm, rr_type, IPv4);
+        query_dns(name_norm, rr_type, IPv6);
         break;
     default:
-        if (query_dns(name, rr_type, IPnone) < 0) {
+        if (query_dns(name_norm, rr_type, IPnone) < 0) {
             stat_requests_failed.inc();
             return -1;
         }
     }
 
     h->reset(rr_type);
-    if ((ret = resolve_name_cache(name, h, sa, priority, rr_type)) > 0) {
+    if ((ret = resolve_name_cache(name_norm, h, sa, priority, rr_type)) > 0) {
         return ret;
     }
 
@@ -1382,10 +1377,10 @@ int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *s
     return -1;
 }
 
-int _resolver::str2ip(const char *name, sockaddr_storage *sa, const address_type types)
+int _resolver::str2ip(const std::string_view &name, sockaddr_storage *sa, const address_type types)
 {
     if (types & IPv4) {
-        int ret = inet_pton(AF_INET, name, &reinterpret_cast<sockaddr_in *>(sa)->sin_addr);
+        int ret = inet_pton(AF_INET, name.data(), &reinterpret_cast<sockaddr_in *>(sa)->sin_addr);
         if (ret == 1) {
             reinterpret_cast<sockaddr_in *>(sa)->sin_family = AF_INET;
             return 1;
@@ -1397,11 +1392,12 @@ int _resolver::str2ip(const char *name, sockaddr_storage *sa, const address_type
     }
 
     if (types & IPv6) {
-        if ((name[0] == '[') && (name[strlen(name) - 1] == ']')) {
-            (const_cast<char *>(name))[strlen(name) - 1] = 0;
-            name++;
+        auto name_norm{ name };
+        if (name_norm.starts_with('[') && name_norm.ends_with(']')) {
+            name_norm.remove_prefix(1);
+            name_norm.remove_suffix(1);
         }
-        int ret = inet_pton(AF_INET6, name, &reinterpret_cast<sockaddr_in6 *>(sa)->sin6_addr);
+        int ret = inet_pton(AF_INET6, name_norm.data(), &reinterpret_cast<sockaddr_in6 *>(sa)->sin6_addr);
         if (ret == 1) {
             reinterpret_cast<sockaddr_in6 *>(sa)->sin6_family = AF_INET6;
             return 1;
@@ -1419,7 +1415,6 @@ int _resolver::set_destination_ip(const cstring &next_scheme, const cstring &nex
                                   const cstring &next_trsp, sockaddr_storage *remote_ip, dns_priority priority,
                                   dns_handle *h_dns)
 {
-
     string nh = c2stlstr(next_hop);
 
     DBG("checking whether '%s' is IP address...", nh.c_str());
@@ -1454,7 +1449,7 @@ int _resolver::set_destination_ip(const cstring &next_scheme, const cstring &nex
 
                 DBG("no port specified, looking up SRV '%s'...", srv_name.c_str());
 
-                if (resolver::instance()->resolve_name(srv_name.c_str(), h_dns, remote_ip, priority, dns_r_srv) >= 0) {
+                if (resolver::instance()->resolve_name(srv_name, h_dns, remote_ip, priority, dns_r_srv) >= 0) {
                     DBG("target %s was resolved by SRV", srv_name.c_str());
                     return 0;
                 }
@@ -1465,7 +1460,7 @@ int _resolver::set_destination_ip(const cstring &next_scheme, const cstring &nex
 
     no_SRV:
         memset(remote_ip, 0, sizeof(sockaddr_storage));
-        int err = resolver::instance()->resolve_name(nh.c_str(), h_dns, remote_ip, priority);
+        int err = resolver::instance()->resolve_name(nh, h_dns, remote_ip, priority);
         if (err < 0) {
             DBG("Unresolvable Request URI domain <%s>", nh.c_str());
             return RESOLVING_ERROR_CODE;
@@ -1489,14 +1484,11 @@ int _resolver::set_destination_ip(const cstring &next_scheme, const cstring &nex
     return 0;
 }
 
-int _resolver::resolve_name_cache(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
-                                  dns_rr_type &t)
+int _resolver::resolve_name_cache(const string_view &name, dns_handle *h, sockaddr_storage *sa,
+                                  const dns_priority priority, dns_rr_type &t)
 {
-    std::string_view name_{ name };
-    int              ret, limit;
-
-    dns_bucket *b = cache.get_bucket(hashlittle(name_.data(), name_.length(), 0));
-    dns_entry  *e = b->find(string{ name_ });
+    dns_bucket *b = cache.get_bucket(hashlittle(name.data(), name.length(), 0));
+    dns_entry  *e = b->find(string{ name });
 
     // first attempt to get a valid IP
     // (from the cache)
@@ -1508,8 +1500,8 @@ int _resolver::resolve_name_cache(const char *name, dns_handle *h, sockaddr_stor
         }
         if (dns_entry *re = e->resolve_alias(cache, priority, t)) {
             dec_ref(e);
-            e     = re;
-            limit = ALIAS_RESOLVING_LIMIT;
+            e         = re;
+            int limit = ALIAS_RESOLVING_LIMIT;
             while (e) {
                 if (!limit) {
                     DBG("recursive resolving chain limit(%d) reached "
@@ -1533,7 +1525,7 @@ int _resolver::resolve_name_cache(const char *name, dns_handle *h, sockaddr_stor
             dec_ref(e);
             return -1;
         }
-        ret = e->next_ip(h, sa, priority);
+        int ret = e->next_ip(h, sa, priority);
         dec_ref(e);
 
         if (ret > 0) {

@@ -139,7 +139,7 @@ TEST_P(ResolverF, resolve_name)
     dns_handle       dh;
     dns_rr_type      rr_type = host[0] == '_' ? dns_r_srv : dns_r_ip;
 
-    GTEST_ASSERT_EQ(resolver::instance()->resolve_name(host.c_str(), &dh, &sa, priority, rr_type), 1)
+    GTEST_ASSERT_EQ(resolver::instance()->resolve_name(host, &dh, &sa, priority, rr_type), 1)
         << "resolve_name('" << host << "') " << priority << " failed";
 
     string result = addr2str(&sa);

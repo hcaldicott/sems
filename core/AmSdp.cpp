@@ -543,7 +543,7 @@ int AmSdp::parse(const char *_sdp_msg)
             priority = IPv6_only;
         }
 
-        if (resolver::instance()->resolve_name(conn.address.c_str(), &dh, &ss, priority) < 0) {
+        if (resolver::instance()->resolve_name(conn.address, &dh, &ss, priority) < 0) {
             ERROR("invalid session level connection line with address: %s", conn.address.c_str());
             return true;
         }
@@ -563,7 +563,7 @@ int AmSdp::parse(const char *_sdp_msg)
             } else if (it->conn.addrType == AT_V6) {
                 priority = IPv6_only;
             }
-            if (resolver::instance()->resolve_name(addr.c_str(), &dh, &ss, priority) < 0) {
+            if (resolver::instance()->resolve_name(addr, &dh, &ss, priority) < 0) {
                 ERROR("invalid media level connection line with address: %s", addr.c_str());
                 return true;
             }

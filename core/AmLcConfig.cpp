@@ -1448,7 +1448,7 @@ int AmLcConfig::readSigInterfaces(cfg_t *cfg, ConfigContainer *config)
                     dns_handle       dh;
                     dns_priority     priority = p->type_ip == AT_V4 ? IPv4_only : IPv6_only;
                     sockaddr_storage a;
-                    if (resolver::instance()->resolve_name(p->public_domain.data(), &dh, &a, priority) < 0) {
+                    if (resolver::instance()->resolve_name(p->public_domain, &dh, &a, priority) < 0) {
                         WARN("failed to resolve domain: '%s' with priority %s "
                              "(sip interface '%s', transport: %s, protocol: %s)",
                              p->public_domain.data(), dns_priority_str(priority), sip_if.name.data(),
@@ -1668,7 +1668,7 @@ int AmLcConfig::readMediaInterfaces(cfg_t *cfg, ConfigContainer *config)
                     dns_handle       dh;
                     dns_priority     priority = self_p->type_ip == AT_V4 ? IPv4_only : IPv6_only;
                     sockaddr_storage a;
-                    if (resolver::instance()->resolve_name(self_p->public_domain.data(), &dh, &a, priority) < 0) {
+                    if (resolver::instance()->resolve_name(self_p->public_domain, &dh, &a, priority) < 0) {
                         WARN("failed to resolve domain: '%s' with priority %s "
                              "(media interface '%s', transport: %s, protocol: %s)",
                              self_p->public_domain.data(), dns_priority_str(priority), media_if.name.data(),

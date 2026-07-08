@@ -582,7 +582,7 @@ int _trans_layer::send_reply(sip_msg *msg, const trans_ticket *tt, const cstring
     if (local_socket->is_opt_set(trsp_socket::force_via_address)) {
         string via_host = c2stlstr(req->via_p1->host);
         DBG("force_via_address: setting remote IP to via '%s'", via_host.c_str());
-        if (resolver::instance()->str2ip(via_host.c_str(), &remote_ip, (address_type)(IPv4 | IPv6)) != 1) {
+        if (resolver::instance()->str2ip(via_host, &remote_ip, (address_type)(IPv4 | IPv6)) != 1) {
             ERROR("Invalid via_host '%s'", via_host.c_str());
             delete[] reply_buf;
             goto end;

@@ -91,9 +91,7 @@ bool RtspClient::srv_resolv(string host, int port, sockaddr_storage &_sa)
         priority = IPv6_only;
     }
 
-    if (resolver::instance()->resolve_name(host.c_str(), &_dh, &_sa, priority,
-                                           config.use_dns_srv ? dns_r_srv : dns_r_ip) < 0)
-    {
+    if (resolver::instance()->resolve_name(host, &_dh, &_sa, priority, config.use_dns_srv ? dns_r_srv : dns_r_ip) < 0) {
         ERROR("can't resolve destination: '%s'", host.c_str());
         return false;
     }

@@ -715,8 +715,8 @@ void CoreRpc::requestResolverGet(const AmArg &args, AmArg &ret)
     sockaddr_storage remote_ip;
 
     bzero(&remote_ip, sizeof(remote_ip));
-    if (-1 == resolver::instance()->resolve_name(target.c_str(), &h, &remote_ip, priority,
-                                                 target[0] == '_' ? dns_r_srv : dns_r_ip))
+    if (-1 ==
+        resolver::instance()->resolve_name(target, &h, &remote_ip, priority, target[0] == '_' ? dns_r_srv : dns_r_ip))
     {
         throw AmSession::Exception(500, "unresolvable destination");
     }

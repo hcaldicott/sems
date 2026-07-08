@@ -47,7 +47,7 @@ bool AmMediaIceState::candidate_address_is_allowed(const string &addr_str)
     if (AmConfig.ice_candidate_acl.empty())
         return true;
 
-    if (resolver::instance()->str2ip(addr_str.data(), &addr, (address_type)(IPv4 | IPv6)) != 1) {
+    if (resolver::instance()->str2ip(addr_str, &addr, (address_type)(IPv4 | IPv6)) != 1) {
         /* allow FQDNs
          * TODO: create special ACL entry for FQDNs
          *  OR add option to force resolving before ACL checking */
