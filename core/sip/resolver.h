@@ -278,7 +278,7 @@ class _resolver : public AmThread {
     int resolve_name(const std::string_view &name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
                      dns_rr_type rr_type = dns_r_ip);
 
-    int str2ip(const std::string_view &name, sockaddr_storage *sa, const address_type types);
+    static int str2ip(const std::string_view &name, sockaddr_storage *sa, const address_type types);
 
     int query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type);
 
@@ -287,7 +287,7 @@ class _resolver : public AmThread {
      * a target set, thus resolving all DNS names and
      * converting IPs into a sockaddr_storage.
      */
-    int resolve_targets(const list<sip_destination> &dest_list, sip_target_set *targets);
+    static int resolve_targets(const list<sip_destination> &dest_list, sip_target_set *targets);
 
     void         clear_cache();
     unsigned int count_cache();

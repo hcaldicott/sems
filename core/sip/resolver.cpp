@@ -36,6 +36,7 @@
 #include "trans_layer.h"
 #include "tr_blacklist.h"
 #include "wheeltimer.h"
+#include "sip/transport.h"
 
 #include "AmUtils.h"
 #include "AmStatistics.h"
@@ -109,12 +110,12 @@ struct srv_entry : public dns_base_entry {
     unsigned short w;
     unsigned short port;
 
-    virtual string to_str();
+    virtual string to_str() override;
 };
 
 struct cname_entry : public dns_base_entry {
     string         target;
-    virtual string to_str();
+    virtual string to_str() override;
 };
 
 string cname_entry::to_str()
@@ -248,17 +249,17 @@ class dns_srv_entry : public dns_entry {
     unsigned short default_service_port;
 
   public:
-    dns_srv_entry(unsigned short default_service_port)
+    explicit dns_srv_entry(unsigned short default_service_port)
         : dns_entry(dns_r_srv)
         , default_service_port(default_service_port)
     {
     }
 
-    void init() { stable_sort(ip_vec.begin(), ip_vec.end(), srv_less); }
+    void init() override { stable_sort(ip_vec.begin(), ip_vec.end(), srv_less); }
 
-    dns_base_entry *get_rr(dns_record *rr, u_char *begin, u_char *end);
+    dns_base_entry *get_rr(dns_record *rr, u_char *begin, u_char *end) override;
 
-    int next_ip(dns_handle *h, sockaddr_storage *sa, dns_priority priority)
+    int next_ip(dns_handle *h, sockaddr_storage *sa, dns_priority priority) override
     {
         int &index = h->srv_n;
         if (index >= static_cast<int>(ip_vec.size()))
@@ -391,10 +392,10 @@ class dns_cname_entry : public dns_entry {
         : dns_entry(dns_r_cname)
     {
     }
-    void            init() {}
-    dns_base_entry *get_rr(dns_record *rr, u_char *begin, u_char *end);
-    int             next_ip(dns_handle *, sockaddr_storage *, const dns_priority) { return -1; }
-    dns_entry      *resolve_alias(dns_cache &cache, const dns_priority priority, dns_rr_type tt_type);
+    void            init() override {}
+    dns_base_entry *get_rr(dns_record *rr, u_char *begin, u_char *end) override;
+    int             next_ip(dns_handle *, sockaddr_storage *, const dns_priority) override { return -1; }
+    dns_entry      *resolve_alias(dns_cache &cache, const dns_priority priority, dns_rr_type tt_type) override;
 };
 
 dns_entry::dns_entry(dns_rr_type type)
@@ -440,7 +441,7 @@ string dns_entry::to_str()
 {
     string res;
 
-    for (vector<dns_base_entry *>::iterator it = ip_vec.begin(); it != ip_vec.end(); it++) {
+    for (vector<dns_base_entry *>::iterator it = ip_vec.begin(); it != ip_vec.end(); ++it) {
         if (it != ip_vec.begin())
             res += ", ";
         res += (*it)->to_str();
@@ -698,32 +699,32 @@ dns_entry *dns_cname_entry::resolve_alias(dns_cache &cache, const dns_priority p
         return nullptr;
     }
 
-    string &target = dynamic_cast<cname_entry *>(ip_vec[0])->target;
+    const string &cname_target = dynamic_cast<cname_entry *>(ip_vec[0])->target;
     DBG("cname entry points to target: %s."
         " search for appropriate entry in the local cache",
-        target.c_str());
-    b            = cache.get_bucket(hashlittle(target.data(), target.size(), 0));
-    dns_entry *e = b->find(target);
+        cname_target.c_str());
+    b            = cache.get_bucket(hashlittle(cname_target.data(), cname_target.size(), 0));
+    dns_entry *e = b->find(cname_target);
     if (e) {
         DBG("return entry %s found in the local cache", e->to_str().c_str());
         return e;
     }
 
-    DBG("entry for target %s is not found in the local cache. try to resolve it", target.c_str());
+    DBG("entry for target %s is not found in the local cache. try to resolve it", cname_target.c_str());
 
     switch (rr_type) {
     case dns_r_ip:
-        resolver::instance()->query_dns(target, rr_type, IPv4);
-        resolver::instance()->query_dns(target, rr_type, IPv6);
+        resolver::instance()->query_dns(cname_target, rr_type, IPv4);
+        resolver::instance()->query_dns(cname_target, rr_type, IPv6);
         break;
     default:
-        if (resolver::instance()->query_dns(target, rr_type, IPnone) < 0) {
+        if (resolver::instance()->query_dns(cname_target, rr_type, IPnone) < 0) {
             return nullptr;
         }
     }
 
     // final lookup in the cache
-    e = b->find(target);
+    e = b->find(cname_target);
     if (e) {
         DBG("return resolved entry %s from the cache", e->to_str().c_str());
     }
@@ -772,6 +773,8 @@ int rr_to_dns_entry(dns_record *rr, dns_section_type t, u_char *begin, u_char *e
 dns_handle::dns_handle()
     : srv_e(nullptr)
     , srv_n(0)
+    , srv_used(false)
+    , port(0)
     , ip_e(nullptr)
     , ip_n(0)
 {
@@ -914,6 +917,7 @@ dns_base_entry *dns_naptr_entry::get_rr(dns_record *rr, u_char *, u_char *end)
 
 sip_target::sip_target(const string &host)
     : host(host)
+    , trsp(trsp_socket::tr_invalid)
 {
     bzero(&ss, sizeof(sockaddr_storage));
 }
@@ -1036,7 +1040,7 @@ int sip_target_set::get_next(sockaddr_storage *ss, string &host, trsp_socket::so
         if (!has_next())
             return -1;
 
-        sip_target &t = *dest_list_it;
+        const sip_target &t = *dest_list_it;
         memcpy(ss, &t.ss, sizeof(sockaddr_storage));
         next_trsp = t.trsp;
         host      = t.host;
@@ -1049,33 +1053,33 @@ int sip_target_set::get_next(sockaddr_storage *ss, string &host, trsp_socket::so
 
 bool sip_target_set::next()
 {
-    dest_list_it++;
+    ++dest_list_it;
     return has_next();
 }
 
 void sip_target_set::prev()
 {
     if (dest_list_it != dest_list.begin())
-        dest_list_it--;
+        --dest_list_it;
 }
 
 void sip_target_set::debug()
 {
     DBG("target list:");
 
-    for (list<sip_target>::iterator it = dest_list.begin(); it != dest_list.end(); it++) {
+    for (list<sip_target>::iterator it = dest_list.begin(); it != dest_list.end(); ++it) {
         DBG("\t%c (%s)%s:%u/%d(%s)", it == dest_list_it ? '>' : ' ', it->host.c_str(), am_inet_ntop(&it->ss).c_str(),
             am_get_port(&it->ss), it->trsp, trsp_socket::socket_transport2proto_str(it->trsp));
     }
 }
 
 sip_target_set::sip_target_set(const sip_target_set &other)
+    : priority(other.priority)
+    , dest_list(other.dest_list)
 {
-    dest_list = other.dest_list;
     dest_list_it =
         std::next(dest_list.begin(), std::distance(other.dest_list.begin(),
                                                    static_cast<list<sip_target>::const_iterator>(other.dest_list_it)));
-    priority = other.priority;
 }
 
 dns_entry_map::dns_entry_map()
@@ -1161,7 +1165,7 @@ inline bool rr_type_supports_merging(dns_rr_type rr_type)
 
 class dns_negative_entry : public dns_entry {
   public:
-    dns_negative_entry(u_int64_t expire_)
+    explicit dns_negative_entry(u_int64_t expire_)
         : dns_entry(dns_r_negative)
     {
         expire = expire_;
@@ -1248,37 +1252,34 @@ int _resolver::query_dns(const std::string_view &name, dns_rr_type rr_type, addr
     }
 
     // save parsed entries to the cache
-    for (const auto &it : h.entry_map) {
-        const string &name         = it.first;
-        dns_entry    *parsed_entry = it.second;
-
+    for (const auto &[entry_name, parsed_entry] : h.entry_map) {
         if (!parsed_entry || parsed_entry->ip_vec.empty())
             continue;
 
-        dns_bucket *b          = cache.get_bucket(hashlittle(name.c_str(), name.length(), 0));
-        dns_entry  *hash_entry = b->find(name);
+        dns_bucket *b          = cache.get_bucket(hashlittle(entry_name.c_str(), entry_name.length(), 0));
+        dns_entry  *hash_entry = b->find(entry_name);
 
         if (!hash_entry) {
             parsed_entry->init();
-            if (b->insert(name, parsed_entry)) {
-                DBG3("DNS cache: inserted new entry: '%s' -> %s", name.c_str(), parsed_entry->to_str().c_str());
+            if (b->insert(entry_name, parsed_entry)) {
+                DBG3("DNS cache: inserted new entry: '%s' -> %s", entry_name.c_str(), parsed_entry->to_str().c_str());
             }
         } else if (hash_entry->get_type() == parsed_entry->get_type()) {
             if (rr_type_supports_merging(parsed_entry->get_type())) {
                 if (hash_entry->union_rr(parsed_entry->ip_vec)) {
-                    DBG3("DNS cache: merged entries. name:'%s', merged: %s, parsed: %s", name.c_str(),
+                    DBG3("DNS cache: merged entries. name:'%s', merged: %s, parsed: %s", entry_name.c_str(),
                          hash_entry->to_str().c_str(), parsed_entry->to_str().c_str());
                 } else {
-                    DBG("DNS cache: failed to merge entries. name: '%s', hashed: %s, parsed: %s", name.c_str(),
+                    DBG("DNS cache: failed to merge entries. name: '%s', hashed: %s, parsed: %s", entry_name.c_str(),
                         hash_entry->to_str().c_str(), parsed_entry->to_str().c_str());
                 }
             } else {
-                DBG("DNS cache: ignore duplicate entry. name: '%s', hashed: %s, parsed: %s", name.c_str(),
+                DBG("DNS cache: ignore duplicate entry. name: '%s', hashed: %s, parsed: %s", entry_name.c_str(),
                     hash_entry->to_str().c_str(), parsed_entry->to_str().c_str());
             }
             dec_ref(hash_entry);
         } else {
-            DBG("DNS cache: ignore entry with another type. name: '%s', hashed: %s, parsed: %s", name.c_str(),
+            DBG("DNS cache: ignore entry with another type. name: '%s', hashed: %s, parsed: %s", entry_name.c_str(),
                 hash_entry->to_str().c_str(), parsed_entry->to_str().c_str());
             dec_ref(hash_entry);
         }
@@ -1519,6 +1520,7 @@ int _resolver::resolve_name_cache(const string_view &name, dns_handle *h, sockad
                 break;
             }
         }
+        assert(e);
         if (e->get_type() != t) {
             DBG("resolved to %s but it has different type %s (priority %s). ignore it", e->to_str().c_str(),
                 dns_rr_type_str(e->get_type(), IPnone), dns_priority_str(priority));
@@ -1550,9 +1552,7 @@ int _resolver::resolve_name_cache(const string_view &name, dns_handle *h, sockad
 
 int _resolver::resolve_targets(const list<sip_destination> &dest_list, sip_target_set *targets)
 {
-    bool sips_scheme;
-
-    for (list<sip_destination>::const_iterator it = dest_list.begin(); it != dest_list.end(); it++) {
+    for (list<sip_destination>::const_iterator it = dest_list.begin(); it != dest_list.end(); ++it) {
         sip_target t(it->host.toString());
         dns_handle h_dns;
 
@@ -1564,7 +1564,7 @@ int _resolver::resolve_targets(const list<sip_destination> &dest_list, sip_targe
             return RESOLVING_ERROR_CODE;
         }
 
-        sips_scheme = !lower_cmp_n(it->scheme, "sips");
+        auto sips_scheme = !lower_cmp_n(it->scheme, "sips");
 
         do {
             t.resolve(it->trsp, sips_scheme);
