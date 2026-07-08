@@ -1,0 +1,25 @@
+# Locate libcodec2.
+#
+#   CODEC2_INCLUDE_DIRS - where to find codec2.h
+#   CODEC2_LIBRARIES    - libraries to link against
+#   CODEC2_FOUND        - TRUE if libcodec2 was found
+
+find_package(PkgConfig QUIET)
+pkg_check_modules(PC_CODEC2 QUIET codec2)
+
+find_path(CODEC2_INCLUDE_DIR codec2.h
+	HINTS ${PC_CODEC2_INCLUDEDIR} ${PC_CODEC2_INCLUDE_DIRS}
+	PATH_SUFFIXES codec2)
+
+find_library(CODEC2_LIBRARY NAMES codec2
+	HINTS ${PC_CODEC2_LIBDIR} ${PC_CODEC2_LIBRARY_DIRS})
+
+include(FindPackageHandleStandardArgs)
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(Codec2 DEFAULT_MSG CODEC2_LIBRARY CODEC2_INCLUDE_DIR)
+
+IF(CODEC2_FOUND)
+	SET(CODEC2_LIBRARIES ${CODEC2_LIBRARY})
+	SET(CODEC2_INCLUDE_DIRS ${CODEC2_INCLUDE_DIR})
+ENDIF(CODEC2_FOUND)
+
+mark_as_advanced(CODEC2_INCLUDE_DIR CODEC2_LIBRARY)

@@ -93,4 +93,6 @@
 
 #define CODEC_IEEE_FLOAT 61
 
+#define CODEC_CODEC2 62
+
 #endif
