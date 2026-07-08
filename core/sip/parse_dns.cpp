@@ -14,10 +14,11 @@ int            dns_expand_name(u_char **ptr, u_char *begin, u_char *end, u_char 
 const char *dns_rr_type_str(dns_rr_type rr_type, unsigned short addr_type)
 {
     switch (rr_type) {
-    case dns_r_ns:    return "NS";
-    case dns_r_cname: return "CNAME";
-    case dns_r_srv:   return "SRV";
-    case dns_r_naptr: return "NAPTR";
+    case dns_r_ns:       return "NS";
+    case dns_r_cname:    return "CNAME";
+    case dns_r_srv:      return "SRV";
+    case dns_r_naptr:    return "NAPTR";
+    case dns_r_negative: return "NEGATIVE";
     case dns_r_ip:
         switch ((address_type)addr_type) {
         case IPv4: return "A";

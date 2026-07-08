@@ -271,6 +271,9 @@ class _resolver : public AmThread {
     // disable SRV lookups
     static bool disable_srv;
 
+    // negative-cache TTL (seconds) for unreachable-DNS failures; 0 disables
+    static unsigned int blacklist_ttl;
+
     int resolve_name(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
                      dns_rr_type rr_type = dns_r_ip);
 
@@ -299,7 +302,7 @@ class _resolver : public AmThread {
                            dns_handle *h_dns);
 
     int resolve_name_cache(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
-                           dns_rr_type rr_type);
+                           dns_rr_type &rr_type);
 
     void run();
     void on_stop() { b_stop.set(true); }

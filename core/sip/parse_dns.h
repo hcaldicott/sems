@@ -14,7 +14,7 @@ enum dns_section_type {
     __dns_max_sections
 };
 
-enum dns_rr_type { dns_r_ip, dns_r_ns, dns_r_cname, dns_r_srv, dns_r_naptr };
+enum dns_rr_type { dns_r_ip, dns_r_ns, dns_r_cname, dns_r_srv, dns_r_naptr, dns_r_negative };
 
 const char *dns_rr_type_str(dns_rr_type rr_type, unsigned short addr_type);
 ns_type     dns_rr_type_tons_type(dns_rr_type rr_type, unsigned short addr_type);

@@ -1114,7 +1114,8 @@ dns_entry *dns_entry_map::fetch(const key_type &key)
     return nullptr;
 }
 
-bool _resolver::disable_srv = false;
+bool         _resolver::disable_srv   = false;
+unsigned int _resolver::blacklist_ttl = 0;
 
 _resolver::_resolver()
     : cache(DNS_CACHE_SIZE)
@@ -1159,12 +1160,42 @@ inline bool rr_type_supports_merging(dns_rr_type rr_type)
     return rr_type == dns_r_ip;
 }
 
+class dns_negative_entry : public dns_entry {
+  public:
+    dns_negative_entry(u_int64_t expire_)
+        : dns_entry(dns_r_negative)
+    {
+        expire = expire_;
+    }
+
+    void            init() override {}
+    dns_base_entry *get_rr(dns_record *, u_char *, u_char *) override { return nullptr; }
+    int             next_ip(dns_handle *, sockaddr_storage *, dns_priority) override { return -1; }
+    string          to_str() override { return "negative"; }
+};
+
 int _resolver::query_dns(const char *name, dns_rr_type rr_type, address_type addr_type)
 {
     u_char dns_res[DNS_REPLY_BUFFER_SIZE];
 
     if (!name)
         return -1;
+
+    std::string blacklist_key;
+    if (blacklist_ttl) {
+        blacklist_key.assign(name);
+
+        dns_bucket *b = cache.get_bucket(hashlittle(blacklist_key.c_str(), blacklist_key.length(), 0));
+        dns_entry  *e = b->find(blacklist_key);
+        if (e) {
+            bool negative = e->get_type() == dns_r_negative;
+            dec_ref(e);
+            if (negative) {
+                DBG3("%s: skip query, FQDN is blacklisted", blacklist_key.c_str());
+                return 0;
+            }
+        }
+    }
 
     DBG3("Querying '%s' (%s)...", name, dns_rr_type_str(rr_type, addr_type));
 
@@ -1195,6 +1226,15 @@ int _resolver::query_dns(const char *name, dns_rr_type rr_type, address_type add
             ERROR("%s/%d: Unexpected error. res_search returned: %d", name, rr_type, h_errno);
             stat_queries_search_errors_unknown.inc();
             break;
+        }
+
+        if (blacklist_ttl && (h_errno == TRY_AGAIN || h_errno == NO_RECOVERY)) {
+            dns_negative_entry *ne = new dns_negative_entry(wheeltimer::instance()->unix_clock.get() + blacklist_ttl);
+            dns_bucket         *b  = cache.get_bucket(hashlittle(blacklist_key.c_str(), blacklist_key.length(), 0));
+            inc_ref(ne);
+            b->insert(blacklist_key, ne);
+            dec_ref(ne);
+            DBG("%s: blacklisted for %u s (DNS unreachable)", blacklist_key.c_str(), blacklist_ttl);
         }
 
         return 0;
@@ -1302,10 +1342,22 @@ int _resolver::resolve_name(const char *name, dns_handle *h, sockaddr_storage *s
     }
 
     // name is NOT an IP address -> try a cache look up
+
+    // omit final dot
+    std::string_view nv{ name };
+    if (nv.ends_with("."))
+        nv.remove_suffix(1);
+    std::string name_norm{ nv };
+    name = name_norm.c_str();
+
     ret = resolve_name_cache(name, h, sa, priority, rr_type);
     if (ret > 0) {
         stat_requests_cached.inc();
         return ret;
+    }
+    if (rr_type == dns_r_negative) {
+        stat_requests_failed.inc();
+        return -1;
     }
 
     // query dns
@@ -1438,14 +1490,10 @@ int _resolver::set_destination_ip(const cstring &next_scheme, const cstring &nex
 }
 
 int _resolver::resolve_name_cache(const char *name, dns_handle *h, sockaddr_storage *sa, const dns_priority priority,
-                                  dns_rr_type t)
+                                  dns_rr_type &t)
 {
     std::string_view name_{ name };
     int              ret, limit;
-
-    // omit final dot
-    if (name_.ends_with("."))
-        name_.remove_suffix(1);
 
     dns_bucket *b = cache.get_bucket(hashlittle(name_.data(), name_.length(), 0));
     dns_entry  *e = b->find(string{ name_ });
@@ -1453,6 +1501,11 @@ int _resolver::resolve_name_cache(const char *name, dns_handle *h, sockaddr_stor
     // first attempt to get a valid IP
     // (from the cache)
     if (e) {
+        if (e->get_type() == dns_r_negative) {
+            t = dns_r_negative;
+            dec_ref(e);
+            return -1;
+        }
         if (dns_entry *re = e->resolve_alias(cache, priority, t)) {
             dec_ref(e);
             e     = re;

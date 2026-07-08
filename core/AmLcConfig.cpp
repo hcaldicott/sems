@@ -105,6 +105,7 @@
 #define PARAM_FORCE_SYMM_RTP_NAME          "force_symmetric_rtp"
 #define PARAM_USE_RAW_SOCK_NAME            "use_raw_sockets"
 #define PARAM_DISABLE_DNS_SRV_NAME         "disable_dns_srv"
+#define PARAM_RESOLVER_BL_TTL_NAME         "resolver_blacklist_timeout_seconds"
 #define PARAM_DETECT_INBAND_NAME           "detect_inband_dtmf"
 #define PARAM_SIP_NAT_HANDLING_NAME        "sip_nat_handling"
 #define PARAM_NEXT_HOP_NAME                "next_hop"
@@ -494,6 +495,7 @@ static cfg_opt_t general[] = { CFG_FUNC("include", &cfg_include),
                                CFG_BOOL(PARAM_FORCE_SYMM_RTP_NAME, cfg_false, CFGF_NONE),
                                CFG_BOOL(PARAM_USE_RAW_SOCK_NAME, cfg_false, CFGF_NONE),
                                CFG_BOOL(PARAM_DISABLE_DNS_SRV_NAME, cfg_false, CFGF_NONE),
+                               CFG_INT(PARAM_RESOLVER_BL_TTL_NAME, 0, CFGF_NONE),
                                CFG_BOOL(PARAM_DETECT_INBAND_NAME, cfg_false, CFGF_NONE),
                                CFG_BOOL(PARAM_SIP_NAT_HANDLING_NAME, cfg_false, CFGF_NONE),
                                CFG_BOOL(PARAM_NEXT_HOP_1ST_NAME, cfg_false, CFGF_NONE),
@@ -1042,7 +1044,8 @@ int AmLcConfig::readGeneral(cfg_t *cfg, ConfigContainer *config)
             set_syslog_facility(cfg_getstr(gen, PARAM_SL_FACILITY_NAME), SEMS_APP_NAME);
         }
 #endif
-        _resolver::disable_srv = cfg_getbool(gen, PARAM_DISABLE_DNS_SRV_NAME);
+        _resolver::disable_srv   = cfg_getbool(gen, PARAM_DISABLE_DNS_SRV_NAME);
+        _resolver::blacklist_ttl = cuint(cfg_getint(gen, PARAM_RESOLVER_BL_TTL_NAME));
     }
     if (cfg_size(gen, PARAM_SESS_PROC_THREADS_NAME)) {
 #ifdef SESSION_THREADPOOL
