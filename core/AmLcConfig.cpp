@@ -448,16 +448,13 @@ static cfg_opt_t media_interfaces[] = { CFG_FUNC("include", &cfg_include),
 /**********************************************************************************************/
 /*                                            modules section                                 */
 /**********************************************************************************************/
-static cfg_opt_t module[] = { CFG_FUNC("include", &cfg_include), CFG_END() };
-
-static cfg_opt_t modules[] = {
-    CFG_FUNC("include", &cfg_include),
-    CFG_STR_LIST(PARAM_PATH_NAME, 0, CFGF_NODEFAULT),
-    CFG_STR(PARAM_CPATH_NAME, "/etc/sems/etc/", CFGF_NONE),
-    CFG_SEC(SECTION_MODULE_NAME, module, CFGF_MULTI | CFGF_TITLE | CFGF_RAW | CFGF_IGNORE_UNKNOWN),
-    CFG_SEC(SECTION_MODULE_GLOBAL_NAME, module, CFGF_MULTI | CFGF_TITLE | CFGF_RAW | CFGF_IGNORE_UNKNOWN),
-    CFG_END()
-};
+static cfg_opt_t modules[] = { CFG_FUNC("include", &cfg_include),
+                               CFG_STR_LIST(PARAM_PATH_NAME, 0, CFGF_NODEFAULT),
+                               CFG_STR(PARAM_CPATH_NAME, "/etc/sems/etc/", CFGF_NONE),
+                               CFG_RAWSEC(SECTION_MODULE_NAME, CFGF_MULTI | CFGF_TITLE | CFGF_USE_INCLUDE_FUNCTION),
+                               CFG_RAWSEC(SECTION_MODULE_GLOBAL_NAME,
+                                          CFGF_MULTI | CFGF_TITLE | CFGF_USE_INCLUDE_FUNCTION),
+                               CFG_END() };
 
 /**********************************************************************************************/
 /*                                            general section                                 */
@@ -1310,27 +1307,24 @@ int AmLcConfig::readModules(cfg_t *cfg, ConfigContainer *config)
         cfg_t      *module = cfg_getnsec(modules_, SECTION_MODULE_NAME, i);
         std::string name   = module->title;
         if (name == "rtsp_client") {
-            if (RtspClient::instance()->configure(module->raw_info->raw)) {
+            if (RtspClient::instance()->configure(cfg_getraw(module))) {
                 ERROR("error in cofiguration of rtsp client");
                 return -1;
             }
         } else {
             config->modules.push_back(name);
-            config->module_config.insert(std::make_pair(name, module->raw_info->raw));
+            config->module_config.insert(std::make_pair(name, cfg_getraw(module)));
         }
-
-        freeRawValues(module);
     }
     mCount = cfg_size(modules_, SECTION_MODULE_GLOBAL_NAME);
     for (unsigned int i = 0; i < mCount; i++) {
         cfg_t      *module = cfg_getnsec(modules_, SECTION_MODULE_GLOBAL_NAME, i);
         std::string name   = module->title;
-        /*printf("raw section value for module '%s':\n---%.*s\n---\n",
-              module->title, (int)module->raw_info->raw_len, module->raw_info->raw);*/
+        /*printf("raw section value for module '%s':\n---%s\n---\n",
+              module->title, cfg_getraw(module));*/
         config->modules.push_back(name);
-        config->module_config.insert(std::make_pair(name, module->raw_info->raw));
+        config->module_config.insert(std::make_pair(name, cfg_getraw(module)));
         config->rtld_global_plugins.insert(name);
-        freeRawValues(module);
     }
 
     return 0;

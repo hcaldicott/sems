@@ -206,19 +206,6 @@ class AmLcConfig {
 
     string getModulesPathList() const;
 
-    /**
-     * helper func for fixing memory leak for cfg_raw_update (confuse.c:1069)
-     * CFGF_RAW flag usage issue
-     */
-    static void freeRawValues(cfg_t *sec)
-    {
-        if (sec->raw_info->raw != NULL) {
-            free(sec->raw_info->raw);
-            sec->raw_info->raw     = NULL;
-            sec->raw_info->raw_len = 0;
-        }
-    }
-
   protected:
     void     setValidationFunction(cfg_t *cfg);
     int      readSigInterfaces(cfg_t *cfg, ConfigContainer *config);

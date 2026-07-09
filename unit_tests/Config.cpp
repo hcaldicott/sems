@@ -49,14 +49,12 @@ int TesterConfig::readConfiguration(const string &filePath)
                            CFG_INT(PARAM_PAIRS_COUNT_NAME, DEFAULT_PAIRS_COUNT, CFGF_NONE),
                            CFG_STR(PARAM_MEDIA_CODEC_NAME, "", CFGF_NODEFAULT), CFG_END() };
 
-    cfg_opt_t module[] = { CFG_END() };
-
     cfg_opt_t opt[] = { CFG_STR(PARAM_SEMS_CONFIG_PATH_NAME, AmLcConfig::instance().config_path.c_str(), CFGF_NONE),
                         CFG_STR(PARAM_SIG_INTERFACE_NAME, "", CFGF_NODEFAULT),
                         CFG_STR(PARAM_LOG_LEVEL_NAME, DEFAULT_LOG_LEVEL, CFGF_NONE),
                         CFG_STR_LIST(PARAM_ALLOW_PLUGINS_NAME, 0, CFGF_NODEFAULT),
                         CFG_SEC(SECTION_STRESS_NAME, stress, CFGF_NONE),
-                        CFG_SEC(SECTION_MODULE_NAME, module, CFGF_MULTI | CFGF_TITLE | CFGF_RAW | CFGF_IGNORE_UNKNOWN),
+                        CFG_RAWSEC(SECTION_MODULE_NAME, CFGF_MULTI | CFGF_TITLE),
                         CFG_END() };
 
     cfg_t *m_cfg;
@@ -113,8 +111,7 @@ int TesterConfig::readConfiguration(const string &filePath)
             cfg_free(m_cfg);
             return -1;
         } else {
-            modules_cfg.emplace(name, module->raw_info->raw);
-            AmLcConfig::freeRawValues(module);
+            modules_cfg.emplace(name, cfg_getraw(module));
         }
     }
 

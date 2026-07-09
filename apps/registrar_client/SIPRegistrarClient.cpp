@@ -132,14 +132,11 @@ SIPRegistrarClient::SIPRegistrarClient(const string &name)
 
 int SIPRegistrarClient::configure(const std::string &config)
 {
-    static cfg_opt_t clickhouse_opt[] = { CFG_END() };
-
     cfg_opt_t opt[] = { CFG_INT(CFG_OPT_NAME_MIN_INTERVAL_PER_DOMAIN_MSEC, 0, CFGF_NODEFAULT),
                         CFG_INT(CFG_OPT_NAME_MIN_INTERVAL_MSEC, 0, CFGF_NODEFAULT),
                         CFG_INT(CFG_OPT_NAME_DEFAULT_EXPIRES, DEFAULT_EXPIRES, CFGF_NONE),
                         CFG_BOOL(CFG_OPT_NAME_EXPORT_METRICS, cfg_false, CFGF_NONE),
-                        CFG_SEC(CFG_SEC_NAME_CLICKHOUSE, clickhouse_opt,
-                                CFGF_NODEFAULT | CFGF_RAW | CFGF_IGNORE_UNKNOWN),
+                        CFG_RAWSEC(CFG_SEC_NAME_CLICKHOUSE, CFGF_NODEFAULT),
                         CFG_END() };
     cfg_t    *cfg   = cfg_init(opt, CFGF_NONE);
     if (!cfg)
@@ -176,7 +173,7 @@ int SIPRegistrarClient::configure(const std::string &config)
 
     if (cfg_size(cfg, CFG_SEC_NAME_CLICKHOUSE)) {
         cfg_t *ch = cfg_getsec(cfg, CFG_SEC_NAME_CLICKHOUSE);
-        if (RegClientClickhouse::configure(ch->raw_info->raw))
+        if (RegClientClickhouse::configure(cfg_getraw(ch)))
             return -1;
     }
 
