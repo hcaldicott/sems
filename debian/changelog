@@ -1,3 +1,11 @@
+sems (1.202.0) stable; urgency=low
+  * media refactoring for streams bundling support
+  * resolver: add negative responses caching
+    * new option general.resolver_blacklist_timeout_seconds (default: 0, disabled)
+  * add codec2 support
+  * sems-external-libs 0.4.14. use upstream libconfuse
+ -- Michael Furmur <furmur@pm.me>  Thu, 09 Jul 2026 20:51:38 +0300
+
 sems (1.201.2) stable; urgency=low
   * http_client: use hmac-sha256 for ruby api auth
  -- Michael Furmur <furmur@pm.me>  Fri, 03 Jul 2026 12:06:52 +0300
