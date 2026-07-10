@@ -1,3 +1,7 @@
+sems (1.202.1) stable; urgency=low
+  * resolver: fix str2ip for IPv6 reference names
+ -- Michael Furmur <furmur@pm.me>  Fri, 10 Jul 2026 12:53:53 +0300
+
 sems (1.202.0) stable; urgency=low
   * media refactoring for streams bundling support
   * resolver: add negative responses caching
