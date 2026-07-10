@@ -1393,12 +1393,16 @@ int _resolver::str2ip(const std::string_view &name, sockaddr_storage *sa, const 
     }
 
     if (types & IPv6) {
-        auto name_norm{ name };
-        if (name_norm.starts_with('[') && name_norm.ends_with(']')) {
-            name_norm.remove_prefix(1);
-            name_norm.remove_suffix(1);
+        string name_norm{ name };
+        char  *name_norm_ptr = name_norm.data();
+        if (name.starts_with('[') && name.ends_with(']')) {
+            if (name.size() < 2) {
+                return -1;
+            }
+            name_norm_ptr++;
+            name_norm_ptr[name.size() - 2] = 0;
         }
-        int ret = inet_pton(AF_INET6, name_norm.data(), &reinterpret_cast<sockaddr_in6 *>(sa)->sin6_addr);
+        int ret = inet_pton(AF_INET6, name_norm_ptr, &reinterpret_cast<sockaddr_in6 *>(sa)->sin6_addr);
         if (ret == 1) {
             reinterpret_cast<sockaddr_in6 *>(sa)->sin6_family = AF_INET6;
             return 1;

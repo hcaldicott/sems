@@ -89,6 +89,37 @@ TEST(Resolver, SipTargetResolve)
     GTEST_ASSERT_EQ(t.trsp, trsp_socket::udp_ipv6);
 }
 
+TEST(Resolver, str2ip)
+{
+    sockaddr_storage sa;
+    auto            &in  = reinterpret_cast<sockaddr_in &>(sa);
+    auto            &in6 = reinterpret_cast<sockaddr_in6 &>(sa);
+
+    std::string_view name4{ "127.0.0.1" };
+    bzero(&sa, sizeof(sockaddr_storage));
+    GTEST_ASSERT_EQ(resolver::instance()->str2ip(name4, &sa, (address_type)(IPv4 | IPv6)), 1);
+    GTEST_ASSERT_EQ(in.sin_addr.s_addr, 0x100007f);
+
+    std::string_view name6{ "::1" };
+    bzero(&sa, sizeof(sockaddr_storage));
+    GTEST_ASSERT_EQ(resolver::instance()->str2ip(name6, &sa, (address_type)(IPv4 | IPv6)), 1);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[0], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[1], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[2], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[3], 0x1000000);
+
+    std::string_view name_ref{ "[::1]" };
+    bzero(&sa, sizeof(sockaddr_storage));
+    GTEST_ASSERT_EQ(resolver::instance()->str2ip(name_ref, &sa, (address_type)(IPv4 | IPv6)), 1);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[0], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[1], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[2], 0);
+    GTEST_ASSERT_EQ(in6.sin6_addr.s6_addr32[3], 0x1000000);
+
+    std::string_view short_name{ "[]" };
+    bzero(&sa, sizeof(sockaddr_storage));
+    GTEST_ASSERT_EQ(resolver::instance()->str2ip(short_name, &sa, (address_type)(IPv4 | IPv6)), 0);
+}
 
 using TestNSResolverFDataType = std::tuple<string, dns_priority, string>;
 
