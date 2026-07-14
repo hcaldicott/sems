@@ -123,7 +123,6 @@ AmB2BSession::AmB2BSession(const string &other_local_tag, AmSipDialog *p_dlg, Am
     , other_id(other_local_tag)
     , sip_relay_only(true)
     , remote_on_hold(false)
-    , rtp_stream_shared(false)
     , est_invite_cseq(0)
     , est_invite_other_cseq(0)
     , subs(p_subs)
@@ -684,9 +683,6 @@ int AmB2BSession::onSdpCompleted(const AmSdp &local_sdp, const AmSdp &remote_sdp
             // report missing media session (here we get for rtp_relay_mode == RTP_Relay)
             DBG("[%s] media session is missing, can't update SDP", dlg ? dlg->getLocalTag().c_str() : "null");
         } else {
-            if (rtp_stream_shared && hasRtpStream() && !media_session->isProcessingMedia()) {
-                media_session->setFirstAudioPairStream(a_leg, RTPStream(), local_sdp, remote_sdp);
-            }
             DBG("media_session->createUpdateStreams(a_leg, local_sdp, remote_sdp, this); aleg = %d, this = %p", a_leg,
                 this);
             media_session->createUpdateStreams(a_leg, local_sdp, remote_sdp, this, sdp_offer_owner);
@@ -698,8 +694,8 @@ int AmB2BSession::onSdpCompleted(const AmSdp &local_sdp, const AmSdp &remote_sdp
             DBG("sip_relay_only. skip AmSession::onSdpCompleted");
             return 0;
         }
-        if (rtp_stream_shared) {
-            DBG("rtp_stream_shared. skip AmSession::onSdpCompleted");
+        if (media_session) {
+            DBG("media_session drove init already. skip AmSession::onSdpCompleted");
             return 0;
         }
         return AmSession::onSdpCompleted(local_sdp, remote_sdp, sdp_offer_owner);
@@ -1030,12 +1026,6 @@ void AmB2BSession::setRtpRelayMode(RTPRelayMode mode)
     rtp_relay_mode = mode;
 }
 
-void AmB2BSession::setRtpStreamShare(bool shared)
-{
-    DBG("%sabled RTP stream sharing", shared ? "en" : "dis");
-    rtp_stream_shared = shared;
-}
-
 void AmB2BSession::setRtpInterface(int relay_interface)
 {
     DBG("setting RTP interface for session '%s' to %i", getLocalTag().c_str(), relay_interface);
@@ -1194,8 +1184,8 @@ void AmB2BSession::computeRelayMask(const SdpMedia &m, bool &enable, PayloadMask
 void AmB2BSession::onSessionChange(AmB2BSession *new_session)
 {
     // DBG("%s(new_session = %p) a_leg = %d",FUNC_NAME,new_session,a_leg);
-    if (rtp_stream_shared && (new_session == NULL)) {
-        DBG("clear audio on unlink from media session with shared streams");
+    if (new_session == NULL) {
+        DBG("clear audio on unlink from media session");
         clearAudio();
     }
 }

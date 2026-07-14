@@ -163,7 +163,6 @@ class AmSession : public virtual AmObject,
         TransProt              transport;
     };
     list<RtpStreamSlot> _rtp_streams;
-    AmRtpStream        *referencing_rtp_str;
 
     /** in-flight media reconfiguration; committed/rolled back on the re-INVITE result */
     unique_ptr<AmMediaTransaction> media_txn;
@@ -261,7 +260,9 @@ class AmSession : public virtual AmObject,
     // build a new stream for the next m= line WITHOUT adding it (staged in a media transaction, adopted on commit)
     AmRtpAudio *createDetachedRtpStream() { return new AmRtpAudio(this, rtp_interface, (int)_rtp_streams.size()); }
     void addEmptyRtpSlot(MediaType type, TransProt transport) { _rtp_streams.push_back({ nullptr, type, transport }); }
-    void forEachRtpStream(const std::function<void(AmRtpAudio *, MediaType, TransProt)> &fn);
+    // if the slot at idx holds a placeholder, materialise an AmRtpAudio in place; otherwise return the existing one
+    AmRtpAudio *activateRtpSlot(unsigned idx);
+    void        forEachRtpStream(const std::function<void(AmRtpAudio *, MediaType, TransProt)> &fn);
 
     // hand an endpoint's ownership to the session (once, at creation/commit); it lives until the session ends
     AmMediaEndpoint *addMediaEndpoint(AmMediaEndpoint * ep);
@@ -772,16 +773,6 @@ class AmSession : public virtual AmObject,
      * Creates a new Id which can be used within sessions.
      */
     static string getNewId();
-
-    /**
-     * Set referencing rtp stream
-     */
-    void setReferencingRtpStr(AmRtpStream * rtp_str);
-
-    /**
-     * Get referencing rtp stream
-     */
-    AmRtpStream *getReferencingRtpStr();
 
     /* ----------------- media processing interface ------------------- */
 

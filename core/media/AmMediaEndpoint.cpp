@@ -37,6 +37,7 @@ AmMediaEndpoint::AmMediaEndpoint(AmRtpStream *s, AmSession *sess, int iface)
     , cur_rtp_trans(nullptr)
     , cur_rtcp_trans(nullptr)
     , media_established_fired(false)
+    , raw_mode(false)
     , media_setup_start(std::chrono::steady_clock::now())
 {
     assert(s); // an endpoint is always created by its (primary) stream, so streams.front() stays valid
@@ -355,6 +356,11 @@ int AmMediaEndpoint::sendUdptl(AmRtpPacket *p)
 
 void AmMediaEndpoint::setRawMode()
 {
+    if (streams.size() > 1) {
+        CLASS_ERROR("BUG: refusing to switch a bundled media endpoint to raw mode (streams=%zu)", streams.size());
+        return;
+    }
+    raw_mode = true;
     if (cur_rtp_trans)
         cur_rtp_trans->setMode(AmMediaTransport::TRANSPORT_MODE_RAW);
 }
@@ -874,6 +880,10 @@ int AmMediaEndpoint::init(const AmSdp &local, const AmSdp &remote, int media_ind
 
 void AmMediaEndpoint::addMember(AmRtpStream *s)
 {
+    if (raw_mode) {
+        CLASS_ERROR("BUG: refusing to add a member to a raw-mode media endpoint");
+        return;
+    }
     if (std::find(streams.begin(), streams.end(), s) == streams.end())
         streams.push_back(s);
 }
@@ -1026,7 +1036,7 @@ void AmMediaEndpoint::onUdptlPacket(AmRtpPacket *p, AmMediaTransport *)
 void AmMediaEndpoint::onRawPacket(AmRtpPacket *p, AmMediaTransport *)
 {
     clearRTPTimeout(&p->recv_time);
-    AmRtpStream *s = streams.front(); // raw relay is never bundled
+    AmRtpStream *s = streams.front();
     if (!s->relay_raw)
         freeRtpPacket(p);
     s->bufferPacket(p);

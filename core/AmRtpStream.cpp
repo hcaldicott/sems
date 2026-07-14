@@ -154,7 +154,6 @@ AmRtpStream::AmRtpStream(AmSession *_s, int _if, int media_index)
     , rtp_ping(false)
     , force_buffering(false)
     , session(_s)
-    , offer_answer_used(true)
     , active(false)
     , force_receive_dtmf(false)
 {
@@ -173,12 +172,8 @@ AmRtpStream::AmRtpStream(AmSession *_s, int _if, int media_index)
 AmRtpStream::~AmRtpStream()
 {
     DBG("~AmRtpStream[%p]() session = %p", this, session);
-    if (session) {
+    if (session)
         session->onRTPStreamDestroy(this);
-
-        if (session->getReferencingRtpStr() == this)
-            session->setReferencingRtpStr(nullptr);
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////

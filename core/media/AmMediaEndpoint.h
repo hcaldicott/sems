@@ -72,6 +72,8 @@ class AmMediaEndpoint
 
     /** MediaEstablishedEvent already posted; re-armed by clearEstablished() on ICE restart */
     bool media_established_fired;
+    /** raw-relay mode: endpoint carries a single non-RTP stream (UDPTL/fax); mutually exclusive with bundle */
+    bool raw_mode;
     /** wall-clock anchor for measuring media setup latency reported with MediaEstablishedEvent */
     std::chrono::steady_clock::time_point media_setup_start;
 

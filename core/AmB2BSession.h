@@ -183,8 +183,7 @@ class AmB2BSession : public AmSession, protected RelayController {
 
     bool a_leg;
 
-    bool remote_on_hold;    // remote is on hold
-    bool rtp_stream_shared; // for cases when AmB2BMedia uses existent stream from _rtp_str
+    bool remote_on_hold; // remote is on hold
     // enum { HoldRequested, ResumeRequested, PreserveHoldStatus } hold;
 
     /**
@@ -363,11 +362,8 @@ class AmB2BSession : public AmSession, protected RelayController {
     /** set RTP relay mode (possibly initiaze by given INVITE) */
     virtual void setRtpRelayMode(RTPRelayMode mode);
 
-    virtual void setRtpStreamShare(bool shared);
-
     /** link RTP streams of other_session to our streams */
     RTPRelayMode getRtpRelayMode() const { return rtp_relay_mode; }
-    bool         getRtpStreamShare() const { return rtp_stream_shared; }
     bool         getRtpRelayForceSymmetricRtp() const { return rtp_relay_force_symmetric_rtp; }
     bool         getRtpPing() const { return rtp_ping; }
     unsigned int getRtpTimeout() const { return dead_rtp_time; }

@@ -87,7 +87,6 @@ AmSession::AmSession(AmSipDialog *p_dlg)
     ,
 #endif
     no_reply(false)
-    , referencing_rtp_str(nullptr)
     , sess_stopped(false)
     , accept_early_session(false)
     , override_frame_size(0)
@@ -126,11 +125,6 @@ AmSession::~AmSession()
 
         if ((*evh)->destroy)
             delete *evh;
-    }
-
-    if (referencing_rtp_str) {
-        ERROR("%s still references stream %p on destruction", dlg->getLocalTag().data(), referencing_rtp_str);
-        referencing_rtp_str->changeSession(nullptr);
     }
 
     delete dlg;
@@ -251,6 +245,19 @@ AmRtpAudio *AmSession::addRtpStream(AmRtpAudio *s)
 {
     _rtp_streams.push_back({ unique_ptr<AmRtpAudio>(s), MT_NONE, TP_NONE });
     return s;
+}
+
+AmRtpAudio *AmSession::activateRtpSlot(unsigned idx)
+{
+    if (idx >= _rtp_streams.size()) {
+        ERROR("BUG: activateRtpSlot(%u) out of range (size=%zu)", idx, _rtp_streams.size());
+        return nullptr;
+    }
+    auto it = std::next(_rtp_streams.begin(), idx);
+    if (it->stream)
+        return it->stream.get(); // already materialised
+    it->stream.reset(new AmRtpAudio(this, rtp_interface, (int)idx));
+    return it->stream.get();
 }
 
 bool AmSession::hasRtpStream(unsigned media_idx)
@@ -1689,16 +1696,6 @@ const char *AmSession::getProcessingStatusStr() const
 void AmSession::setRtpEndlessSymmetricRtp(bool endless)
 {
     symmetric_rtp_endless = endless;
-}
-
-void AmSession::setReferencingRtpStr(AmRtpStream *_ref_rtp_str)
-{
-    referencing_rtp_str = _ref_rtp_str;
-}
-
-AmRtpStream *AmSession::getReferencingRtpStr()
-{
-    return referencing_rtp_str;
 }
 
 /** EMACS **

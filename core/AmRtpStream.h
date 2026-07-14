@@ -353,7 +353,6 @@ class AmRtpStream : public AmObject
 
     PayloadMask     relay_payloads;
     PayloadRelayMap relay_map;
-    bool            offer_answer_used;
 
     /** set to true if any data received */
     bool active;
@@ -496,11 +495,6 @@ class AmRtpStream : public AmObject
     int getSdpMediaIndex()
     {
         return sdp_media_index;
-    }
-    void forceSdpMediaIndex(int idx)
-    {
-        sdp_media_index   = idx;
-        offer_answer_used = false;
     }
 
     // RFC 3264: a disabled m= line keeps its slot at port 0 and carries no media
