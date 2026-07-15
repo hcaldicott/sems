@@ -285,7 +285,6 @@ bool StreamData::initStream(PlayoutType playout_type, AmSdp &local_sdp, AmSdp &r
     }
 
     if (res == 0) {
-        stream->updateStereoRecorders();
         stream->setPlayoutType(playout_type);
         initialized = true;
         // do not unmute if muted because of 0.0.0.0 remote IP (the mute flag is set during init)
@@ -726,7 +725,7 @@ AmB2BMedia::AmB2BMedia(AmB2BSession *_a, AmB2BSession *_b)
     , bsensor(nullptr)
     , ignore_relay_streams(false)
 {
-    DBG("AmB2BMedia[%p](%p,%p) t", static_cast<void *>(this), static_cast<void *>(_a), static_cast<void *>(_b));
+    DBG("AmB2BMedia[%p](%p,%p)", static_cast<void *>(this), static_cast<void *>(_a), static_cast<void *>(_b));
 }
 
 AmB2BMedia::~AmB2BMedia()
@@ -818,7 +817,8 @@ void AmB2BMedia::changeSessionUnsafe(bool a_leg, AmB2BSession *new_session)
             else
                 pair.b.setLeg(new_session, true);
 
-            updateStreamPair(pair);
+            // cross-leg wiring only — codec re-init is SDP-driven (updateStreams path).
+            syncPairWiring(pair);
 
             if (pair.requiresProcessing())
                 needs_processing = true;
@@ -1118,42 +1118,45 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
     DBG("replaced connection address in SDP with %s:%s", public_address.c_str(), replaced_ports.c_str());
 }
 
-void AmB2BMedia::updateStreamPair(StreamPair &pair)
+void AmB2BMedia::initPairStream(StreamPair &pair)
 {
     if (!pair.audio())
         return;
 
-    bool have_a = have_a_leg_local_sdp && have_a_leg_remote_sdp;
-    bool have_b = have_b_leg_local_sdp && have_b_leg_remote_sdp;
-
     try {
-        TRACE("updating stream in A leg");
-        if (have_a)
+        if (have_a_leg_local_sdp && have_a_leg_remote_sdp)
             pair.a.initStream(playout_type, a_leg_local_sdp, a_leg_remote_sdp);
-        pair.a.setDtmfSink(b);
-
-        TRACE("updating stream in B leg");
-        pair.b.setDtmfSink(a);
-        if (have_b)
+        if (have_b_leg_local_sdp && have_b_leg_remote_sdp)
             pair.b.initStream(playout_type, b_leg_local_sdp, b_leg_remote_sdp);
-
-        TRACE("update relay for stream in A leg");
-        if (pair.b.getInput())
-            pair.a.setRelayStream(nullptr); // don't mix relayed RTP into the other's input
-        else
-            pair.a.setRelayStream(pair.b.getStream());
-
-        TRACE("update relay for stream in B leg");
-        if (pair.a.getInput())
-            pair.b.setRelayStream(nullptr); // don't mix relayed RTP into the other's input
-        else
-            pair.b.setRelayStream(pair.a.getStream());
-
-        TRACE("[%p] audio streams %p/%p updated\n", static_cast<void *>(this), static_cast<void *>(pair.a.getStream()),
-              static_cast<void *>(pair.b.getStream()));
     } catch (const string &err) {
-        ERROR("updateStreamPair failed: %s", err.c_str());
+        ERROR("initPairStream failed: %s", err.c_str());
     }
+}
+
+void AmB2BMedia::syncPairWiring(StreamPair &pair)
+{
+    if (!pair.audio())
+        return;
+
+    pair.a.setDtmfSink(b);
+    pair.b.setDtmfSink(a);
+
+    // relay: skip if the other leg has an external input override (mixer)
+    if (pair.b.getInput())
+        pair.a.setRelayStream(nullptr);
+    else
+        pair.a.setRelayStream(pair.b.getStream());
+
+    if (pair.a.getInput())
+        pair.b.setRelayStream(nullptr);
+    else
+        pair.b.setRelayStream(pair.a.getStream());
+
+    // stereo recorders track the current leg's tag; refresh on wiring change
+    if (auto *sa = pair.a.getStream())
+        sa->updateStereoRecorders();
+    if (auto *sb = pair.b.getStream())
+        sb->updateStereoRecorders();
 }
 
 void AmB2BMedia::updateAudioStreams()
@@ -1182,7 +1185,8 @@ void AmB2BMedia::updateAudioStreams()
         pair.a.stopStreamProcessing();
         pair.b.stopStreamProcessing();
 
-        updateStreamPair(pair);
+        initPairStream(pair);
+        syncPairWiring(pair);
 
         if (pair.requiresProcessing())
             needs_processing = true;
@@ -1257,9 +1261,7 @@ void AmB2BMedia::createUpdateStreams(bool a_leg, const AmSdp &local_sdp, const A
         have_b_leg_remote_sdp = true;
     }
 
-    // Pairs are created earlier when the outgoing SDP is built;
-    // here negotiation is complete — it will drive the
-    // state transitions and refresh relay wiring.
+    createStreams(local_sdp);
     updateStreamsUnsafe(a_leg, ctrl, sdp_offer_owner);
 }
 
@@ -1525,7 +1527,8 @@ void AmB2BMedia::setFirstStreamInput(bool a_leg, AmAudio *in)
             pair.a.setInput(in);
         else
             pair.b.setInput(in);
-        updateAudioStreams();
+        // in changed → relay wiring in the other leg needs to reflect it
+        syncPairWiring(pair);
 
         break;
     }
@@ -1549,7 +1552,8 @@ void AmB2BMedia::setFirstStreamOutput(bool a_leg, AmAudio *out)
             pair.a.setOutput(out);
         else
             pair.b.setOutput(out);
-        updateAudioStreams();
+        // out changed → relay wiring in the other leg needs to reflect it
+        syncPairWiring(pair);
 
         break;
     }

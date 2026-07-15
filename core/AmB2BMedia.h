@@ -398,14 +398,22 @@ class AmB2BMedia : public AmMediaSession
 
     bool relay_paused;
 
-    void createStreams(const AmSdp &sdp);
-    /** finalise pair states once both legs have negotiated (local+remote) SDP */
-    void applyStateTransitions();
+    /** post-SDP applier: state transitions + relay setup + updateAudioStreams();
+     *  updateAudioStreams inits/syncs audio pairs; updateRelayStream wires a non-audio relay. */
     void updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp_offer_owner);
-    void updateStreamPair(StreamPair & pair);
     void updateAudioStreams();
     void updateRelayStream(AmRtpStream * stream, AmB2BSession * session, const string &connection_address,
                            const SdpMedia &m, AmRtpStream *relay_to);
+
+    /** first-seen pair creation from SDP; idempotent */
+    void createStreams(const AmSdp &sdp);
+    /** finalise pair states once both legs have SDP collected */
+    void applyStateTransitions();
+
+    /** initialises pair streams */
+    void initPairStream(StreamPair & pair);
+    /** syncs pair cross-leg wiring (DTMF sink, relay stream, stereo recorders) */
+    void syncPairWiring(StreamPair & pair);
 
     void setMuteFlag(bool a_leg, bool set);
     void changeSessionUnsafe(bool a_leg, AmB2BSession *new_session);
