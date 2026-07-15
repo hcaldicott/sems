@@ -1028,25 +1028,18 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
     createStreams(parser_sdp);
 
     string replaced_ports;
-    auto   audio_pair = streams.end(), relay_pair = streams.end();
-    for (auto i = streams.begin(); i != streams.end(); ++i) {
-        if (i->audio()) {
-            if (audio_pair == streams.end())
-                audio_pair = i;
-        } else {
-            if (relay_pair == streams.end())
-                relay_pair = i;
-        }
-    }
 
-    // createStreams() above guarantees streams.size() == parser_sdp.media.size()
-    auto it = parser_sdp.media.begin();
-    for (unsigned int idx = 0; it != parser_sdp.media.end(); ++it, ++idx) {
+    // streams and parser_sdp.media are 1:1 by index;
+    // kind of the slot is taken from the current m-line,
+    // not from the pair's cached state (may lag on reinvite).
+    auto it      = parser_sdp.media.begin();
+    auto pair_it = streams.begin();
+    for (unsigned int idx = 0; it != parser_sdp.media.end() && pair_it != streams.end(); ++it, ++pair_it, ++idx) {
         // FIXME: only UDP streams are handled for now
         if (it->type == MT_AUDIO) {
             public_address.clear();
             try {
-                auto stream = a_leg ? audio_pair->a.getStream() : audio_pair->b.getStream();
+                auto stream = a_leg ? pair_it->a.getStream() : pair_it->b.getStream();
                 if (stream) {
                     stream->replaceAudioMediaParameters(*it, idx, addr_type);
                     public_address = stream->getEndpoint()->getLocalAddress();
@@ -1064,16 +1057,11 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
                 it->conn.addrType = addr_type;
                 DBG("new stream connection address: %s", it->conn.address.c_str());
             }
-
-            ++audio_pair;
-            // skip relay streams
-            while (audio_pair != streams.end() && !audio_pair->audio())
-                ++audio_pair;
         } else if (canRelay(*it)) {
             if (it->port) { // if stream active
                 public_address.clear();
                 try {
-                    auto stream = a_leg ? relay_pair->a.getStream() : relay_pair->b.getStream();
+                    auto stream = a_leg ? pair_it->a.getStream() : pair_it->b.getStream();
                     if (stream) {
                         stream->getEndpoint()->setLocalIP(addr_type);
                         public_address = stream->getEndpoint()->getLocalAddress();
@@ -1096,16 +1084,11 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
                     DBG("new stream connection address: %s", it->conn.address.c_str());
                 }
             }
-            ++relay_pair;
-            // skip audio streams
-            while (relay_pair != streams.end() && relay_pair->audio())
-                ++relay_pair;
         } else {
             // non-audio, non-canRelay m= (Empty/Inactive pair): propagate remote's
             // connection address unchanged.
             if (it->conn.address.empty())
                 it->conn = orig_conn;
-            continue;
         }
     }
 
@@ -1318,63 +1301,48 @@ void AmB2BMedia::updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp
     // we can safely apply the changes once we have local & remote SDP (i.e. the
     // negotiation is finished) otherwise we might handle the RTP in a wrong way
 
-    auto audio_pair = streams.end(), relay_pair = streams.end();
-    for (auto i = streams.begin(); i != streams.end(); ++i) {
-        (a_leg ? i->a : i->b).setSdpOfferOwner(sdp_offer_owner);
+    for (auto &p : streams)
+        (a_leg ? p.a : p.b).setSdpOfferOwner(sdp_offer_owner);
 
-        if (i->audio()) {
-            if (audio_pair == streams.end())
-                audio_pair = i;
-        } else {
-            if (relay_pair == streams.end())
-                relay_pair = i;
-        }
-    }
-
-    int idx = 0;
-    for (vector<SdpMedia>::const_iterator m = remote_sdp.media.begin(); m != remote_sdp.media.end(); ++m, ++idx) {
+    // streams and remote_sdp.media are 1:1 by index; kind of the slot is taken
+    // from the current m-line, not from the pair's cached state (may lag on reinvite).
+    auto pair_it = streams.begin();
+    int  idx     = 0;
+    for (auto m = remote_sdp.media.begin(); m != remote_sdp.media.end() && pair_it != streams.end();
+         ++m, ++pair_it, ++idx)
+    {
         const string &connection_address = (m->conn.address.empty() ? remote_sdp.conn.address : m->conn.address);
         if (m->type == MT_AUDIO) {
             DBG("updateStreams() processing audio stream %d", idx);
             DBG("[%p] updateStreams() update AudioStreamPair %p/%p", static_cast<void *>(this),
-                static_cast<void *>(audio_pair->a.getStream()), static_cast<void *>(audio_pair->b.getStream()));
+                static_cast<void *>(pair_it->a.getStream()), static_cast<void *>(pair_it->b.getStream()));
 
             // initialize relay mask in the other(!) leg and relay destination for stream in current leg
             TRACE("relay payloads in direction %s\n", a_leg ? "B -> A" : "A -> B");
 
             if (a_leg) {
-                audio_pair->b.setRelayPayloads(*m, ctrl);
-                audio_pair->a.setRelayDestination(connection_address, static_cast<int>(m->port));
+                pair_it->b.setRelayPayloads(*m, ctrl);
+                pair_it->a.setRelayDestination(connection_address, static_cast<int>(m->port));
             } else {
-                audio_pair->a.setRelayPayloads(*m, ctrl);
-                audio_pair->b.setRelayDestination(connection_address, static_cast<int>(m->port));
+                pair_it->a.setRelayPayloads(*m, ctrl);
+                pair_it->b.setRelayDestination(connection_address, static_cast<int>(m->port));
             }
-
-            ++audio_pair;
-            // skip relay streams
-            while (audio_pair != streams.end() && !audio_pair->audio())
-                ++audio_pair;
         } else {
             DBG("updateStreams() processing non-audio stream %d", idx);
             if (ignore_relay_streams)
                 continue;
             if (!canRelay(*m))
                 continue;
-            StreamPair &relay_stream = *relay_pair;
 
             if (a_leg) {
                 DBG("[%p] updating A-leg relay_stream %d. %p", static_cast<void *>(this), idx,
-                    static_cast<void *>(relay_stream.a.getStream()));
-                updateRelayStream(relay_stream.a.getStream(), a, connection_address, *m, relay_stream.b.getStream());
+                    static_cast<void *>(pair_it->a.getStream()));
+                updateRelayStream(pair_it->a.getStream(), a, connection_address, *m, pair_it->b.getStream());
             } else {
                 DBG("[%p] updating B-leg relay_stream %d. %p", static_cast<void *>(this), idx,
-                    static_cast<void *>(relay_stream.b.getStream()));
-                updateRelayStream(relay_stream.b.getStream(), b, connection_address, *m, relay_stream.a.getStream());
+                    static_cast<void *>(pair_it->b.getStream()));
+                updateRelayStream(pair_it->b.getStream(), b, connection_address, *m, pair_it->a.getStream());
             }
-            ++relay_pair;
-            // skip audio streams
-            while (relay_pair != streams.end() && relay_pair->audio())
-                ++relay_pair;
         }
     } // iterate remote_sdp.media
 
