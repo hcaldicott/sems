@@ -1103,7 +1103,7 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
 
 void AmB2BMedia::initPairStream(StreamPair &pair)
 {
-    if (!pair.audio())
+    if (!pair.active())
         return;
 
     try {
@@ -1334,6 +1334,9 @@ void AmB2BMedia::updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp
             if (!canRelay(*m))
                 continue;
 
+            pair_it->a.stopStreamProcessing();
+            pair_it->b.stopStreamProcessing();
+
             if (a_leg) {
                 DBG("[%p] updating A-leg relay_stream %d. %p", static_cast<void *>(this), idx,
                     static_cast<void *>(pair_it->a.getStream()));
@@ -1343,6 +1346,11 @@ void AmB2BMedia::updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp
                     static_cast<void *>(pair_it->b.getStream()));
                 updateRelayStream(pair_it->b.getStream(), b, connection_address, *m, pair_it->a.getStream());
             }
+
+            initPairStream(*pair_it);
+
+            pair_it->a.resumeStreamProcessing();
+            pair_it->b.resumeStreamProcessing();
         }
     } // iterate remote_sdp.media
 
