@@ -56,6 +56,10 @@ class StreamData {
     int media_idx;
     /** current pair state (see enum State) */
     State state;
+    /** media kind + transport from the m= line, kept for retro-materialising the
+     *  session slot in setLeg() when the leg attaches after pair creation. */
+    MediaType type;
+    TransProt transport;
     /** Flag set when streams in A/B leg are correctly initialized (for
      * transcoding purposes). */
     bool initialized;
@@ -109,7 +113,7 @@ class StreamData {
     StreamData()                    = delete;
     StreamData(StreamData const &)  = delete;
     StreamData(StreamData const &&) = delete;
-    StreamData(AmB2BSession *leg, int media_idx, State initial);
+    StreamData(AmB2BSession *leg, int media_idx, State initial, MediaType type, TransProt transport);
     ~StreamData();
 
     State getState() const { return state; }
@@ -313,9 +317,10 @@ class AmB2BMedia : public AmMediaSession
         StreamPair()                    = delete;
         StreamPair(StreamPair const &)  = delete;
         StreamPair(StreamPair const &&) = delete;
-        StreamPair(AmB2BSession *_a, AmB2BSession *_b, int _media_idx, State _state)
-            : a(_a, _media_idx, _state)
-            , b(_b, _media_idx, _state)
+        StreamPair(AmB2BSession *_a, AmB2BSession *_b, int _media_idx, State _state, MediaType _type,
+                   TransProt _transport)
+            : a(_a, _media_idx, _state, _type, _transport)
+            , b(_b, _media_idx, _state, _type, _transport)
             , media_idx(_media_idx)
         {
         }

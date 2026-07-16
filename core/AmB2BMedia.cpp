@@ -173,17 +173,19 @@ void B2BMediaStatistics::getReport(const AmArg &, AmArg &ret)
 }
 
 //////////////////////////////////////////////////////////////////////////////////
-StreamData::StreamData(AmB2BSession *_leg, int _media_idx, State initial)
-    : leg(_leg)
+StreamData::StreamData(AmB2BSession *_leg, int _media_idx, State initial, MediaType _type, TransProt _transport)
+    : leg(nullptr) // set via setLeg below
     , media_idx(_media_idx)
     , state(initial)
+    , type(_type)
+    , transport(_transport)
     , initialized(false)
     , dtmf_detector(nullptr)
     , dtmf_queue(nullptr)
     , outgoing_payload(UNDEFINED_PAYLOAD)
     , incoming_payload(UNDEFINED_PAYLOAD)
 {
-    initialize(initial == ActiveAudio);
+    setLeg(_leg, initial == ActiveAudio);
 }
 
 StreamData::~StreamData()
@@ -371,7 +373,17 @@ void StreamData::setLeg(AmB2BSession *l, bool audio)
 
     leg = l;
 
-    // (re)apply per-leg B2B config.
+    // materialise the leg's slot at our media_idx if not present yet.
+    if (l && media_idx >= 0 && !l->hasRtpStream(static_cast<unsigned>(media_idx))) {
+        switch (state) {
+        case ActiveAudio:
+        case ActiveRelay: l->addRtpStream(); break;
+        case Empty:       l->addEmptyRtpSlot(type, transport); break;
+        case Inactive:    break; // was Active, slot already exists — nothing to add
+        }
+    }
+
+    // (re)apply per-leg B2B config; getStream() is now valid if we just added a live slot.
     initialize(audio);
 }
 
@@ -992,18 +1004,8 @@ void AmB2BMedia::createStreams(const AmSdp &sdp)
         else
             initial = StreamData::Empty;
 
-        if (initial == StreamData::Empty) {
-            if (a)
-                a->addEmptyRtpSlot(static_cast<MediaType>(m->type), m->transport);
-            if (b)
-                b->addEmptyRtpSlot(static_cast<MediaType>(m->type), m->transport);
-        } else {
-            if (a)
-                a->addRtpStream();
-            if (b)
-                b->addRtpStream();
-        }
-        auto &p = streams.emplace_back(a, b, idx, initial);
+        // pair ctor → StreamData ctor → setLeg → materialises the leg slot and initialize()
+        auto &p = streams.emplace_back(a, b, idx, initial, static_cast<MediaType>(m->type), m->transport);
         DBG("[%p] createStreams() created StreamPair for m=%d, state=%d", static_cast<void *>(this), idx,
             static_cast<int>(initial));
 
