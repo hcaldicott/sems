@@ -430,6 +430,10 @@ class AmB2BMedia : public AmMediaSession
 
     bool ignore_relay_streams; // skip relay streams create/update
 
+    /** pending in/out per media_idx, applied when the pair is created. */
+    std::map<unsigned, AmAudio *> pending_a_in, pending_a_out;
+    std::map<unsigned, AmAudio *> pending_b_in, pending_b_out;
+
   protected:
     virtual ~AmB2BMedia();
 
@@ -569,6 +573,8 @@ class AmB2BMedia : public AmMediaSession
             return b_leg_muted;
     }
 
+    void setStreamInput(bool a_leg, unsigned media_idx, AmAudio *in);
+    void setStreamOutput(bool a_leg, unsigned media_idx, AmAudio *out);
     void setFirstStreamInput(bool a_leg, AmAudio *in);
     void setFirstStreamOutput(bool a_leg, AmAudio *out);
     void createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con);

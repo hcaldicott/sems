@@ -1017,6 +1017,18 @@ void AmB2BMedia::createStreams(const AmSdp &sdp)
         p.setSklLogger(sklfile);
         p.setASensor(asensor);
         p.setBSensor(bsensor);
+
+        auto apply = [idx](std::map<unsigned, AmAudio *> &pmap, StreamData &sd, void (StreamData::*fn)(AmAudio *)) {
+            auto it = pmap.find(static_cast<unsigned>(idx));
+            if (it != pmap.end())
+                (sd.*fn)(it->second);
+        };
+        apply(pending_a_in, p.a, &StreamData::setInput);
+        apply(pending_a_out, p.a, &StreamData::setOutput);
+        apply(pending_b_in, p.b, &StreamData::setInput);
+        apply(pending_b_out, p.b, &StreamData::setOutput);
+        if (p.audio())
+            syncPairWiring(p);
     }
 }
 
@@ -1491,54 +1503,60 @@ void AmB2BMedia::setMonitorRtpTimeout(bool enable)
         pair.setMonitorRtpTimeout(enable);
 }
 
-void AmB2BMedia::setFirstStreamInput(bool a_leg, AmAudio *in)
+void AmB2BMedia::setStreamInput(bool a_leg, unsigned media_idx, AmAudio *in)
 {
     AmLock lock(mutex);
 
-    bool found = false;
-    for (auto &pair : streams) {
-        if (!pair.audio())
-            continue;
+    (a_leg ? pending_a_in : pending_b_in)[media_idx] = in;
 
-        found = true;
-        if (a_leg)
-            pair.a.setInput(in);
-        else
-            pair.b.setInput(in);
-        // in changed → relay wiring in the other leg needs to reflect it
+    if (media_idx < streams.size()) {
+        auto &pair = *std::next(streams.begin(), media_idx);
+        (a_leg ? pair.a : pair.b).setInput(in);
         syncPairWiring(pair);
-
-        break;
     }
+}
 
-    if (!found && in) {
-        ERROR("BUG: can't set %s leg's first stream input, no streams", a_leg ? "A" : "B");
+void AmB2BMedia::setStreamOutput(bool a_leg, unsigned media_idx, AmAudio *out)
+{
+    AmLock lock(mutex);
+
+    (a_leg ? pending_a_out : pending_b_out)[media_idx] = out;
+
+    if (media_idx < streams.size()) {
+        auto &pair = *std::next(streams.begin(), media_idx);
+        (a_leg ? pair.a : pair.b).setOutput(out);
+        syncPairWiring(pair);
     }
+}
+
+void AmB2BMedia::setFirstStreamInput(bool a_leg, AmAudio *in)
+{
+    unsigned idx = 0;
+    {
+        AmLock lock(mutex);
+        for (auto &pair : streams) {
+            if (pair.audio()) {
+                idx = static_cast<unsigned>(pair.media_idx);
+                break;
+            }
+        }
+    }
+    setStreamInput(a_leg, idx, in);
 }
 
 void AmB2BMedia::setFirstStreamOutput(bool a_leg, AmAudio *out)
 {
-    AmLock lock(mutex);
-
-    bool found = false;
-    for (auto &pair : streams) {
-        if (!pair.audio())
-            continue;
-
-        found = true;
-        if (a_leg)
-            pair.a.setOutput(out);
-        else
-            pair.b.setOutput(out);
-        // out changed → relay wiring in the other leg needs to reflect it
-        syncPairWiring(pair);
-
-        break;
+    unsigned idx = 0;
+    {
+        AmLock lock(mutex);
+        for (auto &pair : streams) {
+            if (pair.audio()) {
+                idx = static_cast<unsigned>(pair.media_idx);
+                break;
+            }
+        }
     }
-
-    if (!found && out) {
-        ERROR("BUG: can't set %s leg's first stream output, no streams", a_leg ? "A" : "B");
-    }
+    setStreamOutput(a_leg, idx, out);
 }
 
 void AmB2BMedia::createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con)
