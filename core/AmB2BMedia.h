@@ -403,6 +403,9 @@ class AmB2BMedia : public AmMediaSession
     std::list<StreamPair> streams;
     std::list<StreamPair> pending_streams;
     bool                  in_transaction_mode = false;
+    // per-leg OA-completion flags accumulated during a tx; commit fires when both are true
+    bool a_leg_oa_completed = false;
+    bool b_leg_oa_completed = false;
     // snapshots of local/remote SDPs taken at beginTransactionMode; restored on rollback
     AmSdp prev_a_leg_local_sdp, prev_a_leg_remote_sdp;
     AmSdp prev_b_leg_local_sdp, prev_b_leg_remote_sdp;
@@ -614,8 +617,9 @@ class AmB2BMedia : public AmMediaSession
      *  Per-leg AmMediaTransaction is created lazily in createStreams and owned
      *  by the session. commit splices staged pairs into streams; rollback drops them. */
     void beginTransactionMode();
-    void commitTransactionMode();
     void rollbackTransactionMode();
+    // record a leg's successful OA completion; when both legs reported, commit fires
+    void notifyOACompleted(bool a_leg);
 
     void createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con);
 

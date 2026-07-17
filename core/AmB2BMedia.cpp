@@ -1608,21 +1608,26 @@ void AmB2BMedia::beginTransactionMode()
     prev_a_leg_remote_sdp = a_leg_remote_sdp;
     prev_b_leg_local_sdp  = b_leg_local_sdp;
     prev_b_leg_remote_sdp = b_leg_remote_sdp;
+    a_leg_oa_completed    = false;
+    b_leg_oa_completed    = false;
     in_transaction_mode   = true;
 }
 
-void AmB2BMedia::commitTransactionMode()
+void AmB2BMedia::notifyOACompleted(bool a_leg)
 {
     AmLock lock(mutex);
     if (!in_transaction_mode)
         return;
+    (a_leg ? a_leg_oa_completed : b_leg_oa_completed) = true;
+    if (!(a_leg_oa_completed && b_leg_oa_completed))
+        return;
     if (!a || !b) {
-        ERROR("BUG: commitTransactionMode with missing session (a=%p, b=%p)", static_cast<void *>(a),
-              static_cast<void *>(b));
+        ERROR("BUG: notifyOACompleted with missing session (a=%p, b=%p)", static_cast<void *>(this->a),
+              static_cast<void *>(this->b));
         return;
     }
-    a->commitMediaTransaction();
-    b->commitMediaTransaction();
+    this->a->commitMediaTransaction();
+    this->b->commitMediaTransaction();
     streams.splice(streams.end(), pending_streams);
     in_transaction_mode = false;
     applyStateTransitions();
