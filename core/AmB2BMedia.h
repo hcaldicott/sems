@@ -7,9 +7,12 @@
 #include "AmMediaProcessor.h"
 #include "AmDtmfDetector.h"
 
+#include <functional>
 #include <map>
+#include <type_traits>
 
 class AmB2BSession;
+class AmMediaTransaction;
 
 class B2BMediaStatistics {
   private:
@@ -113,7 +116,8 @@ class StreamData {
     StreamData()                    = delete;
     StreamData(StreamData const &)  = delete;
     StreamData(StreamData const &&) = delete;
-    StreamData(AmB2BSession *leg, int media_idx, State initial, MediaType type, TransProt transport);
+    StreamData(AmB2BSession *leg, int media_idx, State initial, MediaType type, TransProt transport,
+               AmMediaTransaction *tx = nullptr);
     ~StreamData();
 
     State getState() const { return state; }
@@ -121,8 +125,8 @@ class StreamData {
     void clear();
     /** initialise per-pair-per-leg meta */
     void initialize(bool audio);
-    /** attach/detach a leg */
-    void setLeg(AmB2BSession *l, bool audio);
+    /** attach/detach a leg. In tx mode `tx` receives the new stream (staged). */
+    void setLeg(AmB2BSession *l, bool audio, AmMediaTransaction *tx = nullptr);
     /** move this leg to `desired` (empty→active promotes the session slot,
      *  active*→inactive tears down relay wiring). Updates state on completion. */
     void transition(State desired);
@@ -318,9 +322,9 @@ class AmB2BMedia : public AmMediaSession
         StreamPair(StreamPair const &)  = delete;
         StreamPair(StreamPair const &&) = delete;
         StreamPair(AmB2BSession *_a, AmB2BSession *_b, int _media_idx, State _state, MediaType _type,
-                   TransProt _transport)
-            : a(_a, _media_idx, _state, _type, _transport)
-            , b(_b, _media_idx, _state, _type, _transport)
+                   TransProt _transport, AmMediaTransaction *tx_a = nullptr, AmMediaTransaction *tx_b = nullptr)
+            : a(_a, _media_idx, _state, _type, _transport, tx_a)
+            , b(_b, _media_idx, _state, _type, _transport, tx_b)
             , media_idx(_media_idx)
         {
         }
@@ -397,21 +401,47 @@ class AmB2BMedia : public AmMediaSession
     PlayoutType playout_type;
 
     std::list<StreamPair> streams;
+    std::list<StreamPair> pending_streams;
+    bool                  in_transaction_mode = false;
+    // snapshots of local/remote SDPs taken at beginTransactionMode; restored on rollback
+    AmSdp prev_a_leg_local_sdp, prev_a_leg_remote_sdp;
+    AmSdp prev_b_leg_local_sdp, prev_b_leg_remote_sdp;
 
     bool a_leg_muted, b_leg_muted;
     // bool a_leg_receiving, b_leg_receiving;
 
     bool relay_paused;
 
-    /** post-SDP applier: state transitions + relay setup + updateAudioStreams();
-     *  updateAudioStreams inits/syncs audio pairs; updateRelayStream wires a non-audio relay. */
+    /** post-SDP applier: state transitions + per-pair relay setup + audio init/wiring in one walk.
+     *  updateAudioPair inits/syncs an audio pair; updateRelayPair wires a non-audio relay pair. */
     void updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp_offer_owner);
-    void updateAudioStreams();
-    void updateRelayStream(AmRtpStream * stream, AmB2BSession * session, const string &connection_address,
-                           const SdpMedia &m, AmRtpStream *relay_to);
+    void updateAudioPair(StreamPair & pair, bool a_leg, RelayController *ctrl, const string &connection_address,
+                         const SdpMedia &m, bool &needs_processing);
+    void updateRelayPair(StreamPair & pair, bool a_leg, const string &connection_address, const SdpMedia &m);
 
     /** first-seen pair creation from SDP; idempotent */
     void createStreams(const AmSdp &sdp);
+
+    // callback returning bool: true stops iteration early; void callbacks always iterate to the end
+    template <typename F> void forEachPair(F && fn, bool include_pending = true)
+    {
+        auto visit = [&](StreamPair &p) {
+            if constexpr (std::is_same_v<std::invoke_result_t<F, StreamPair &>, bool>)
+                return fn(p);
+            else {
+                fn(p);
+                return false;
+            }
+        };
+        for (auto &p : streams)
+            if (visit(p))
+                return;
+        if (include_pending)
+            for (auto &p : pending_streams)
+                if (visit(p))
+                    return;
+    }
+
     /** finalise pair states once both legs have SDP collected */
     void applyStateTransitions();
 
@@ -577,6 +607,14 @@ class AmB2BMedia : public AmMediaSession
     void setStreamOutput(bool a_leg, unsigned media_idx, AmAudio *out);
     void setFirstStreamInput(bool a_leg, AmAudio *in);
     void setFirstStreamOutput(bool a_leg, AmAudio *out);
+
+    /** stage new pairs/streams during an in-flight OA (reinvite adding m= lines).
+     *  Per-leg AmMediaTransaction is created lazily in createStreams and owned
+     *  by the session. commit splices staged pairs into streams; rollback drops them. */
+    void beginTransactionMode();
+    void commitTransactionMode();
+    void rollbackTransactionMode();
+
     void createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con);
 
     void setRtpLogger(msg_logger * _logger);

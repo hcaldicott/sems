@@ -222,14 +222,23 @@ void AmSession::restoreMedia(const AmSdp &prev_local_sdp)
     dlg->reinvite("", &body, SIP_FLAGS_VERBATIM);
 }
 
-AmRtpAudio *AmSession::RTPStream(unsigned media_idx)
+AmRtpAudio *AmSession::RTPStream(unsigned media_idx, bool allow_staged)
 {
     for (auto &slot : _rtp_streams)
         if (slot.stream && (unsigned)slot.stream->getSdpMediaIndex() == media_idx)
             return slot.stream.get();
+    if (allow_staged && media_txn)
+        if (auto *s = media_txn->getStream(static_cast<int>(media_idx)))
+            return s;
     if (media_idx == 0 && _rtp_streams.empty())
         return addRtpStream();
     return nullptr;
+}
+
+AmRtpAudio *AmSession::createDetachedRtpStream()
+{
+    int idx = (int)_rtp_streams.size() + (media_txn ? (int)media_txn->stagedSlotCount() : 0);
+    return new AmRtpAudio(this, rtp_interface, idx);
 }
 
 AmRtpAudio *AmSession::addRtpStream()
@@ -260,11 +269,13 @@ AmRtpAudio *AmSession::activateRtpSlot(unsigned idx)
     return it->stream.get();
 }
 
-bool AmSession::hasRtpStream(unsigned media_idx)
+bool AmSession::hasRtpStream(unsigned media_idx, bool allow_staged)
 {
     for (auto &slot : _rtp_streams)
         if (slot.stream && (unsigned)slot.stream->getSdpMediaIndex() == media_idx)
             return true;
+    if (allow_staged && media_txn && media_txn->hasSlotAt(static_cast<int>(media_idx)))
+        return true;
     return false;
 }
 
@@ -1071,7 +1082,7 @@ bool AmSession::getSdpOffer(AmSdp &offer)
     offer.media.clear();
     string conn_addr;
     audio_1st_stream = true;
-    forEachRtpStream([&](AmRtpAudio *s, MediaType type, TransProt transport) {
+    auto emit_m      = [&](AmRtpAudio *s, MediaType type, TransProt transport) {
         offer.media.push_back(SdpMedia());
         SdpMedia &m = offer.media.back();
         if (override_frame_size)
@@ -1091,21 +1102,11 @@ bool AmSession::getSdpOffer(AmSdp &offer)
             audio_1st_stream = false;
         if (conn_addr.empty() && !s->isDisabled()) // c= from an active stream (interface host)
             conn_addr = s->getEndpoint()->getLocalAddress();
-    });
-    // staged (uncommitted) streams from an in-flight media transaction emit their m= lines below
+    };
+    forEachRtpStream(emit_m);
+    // staged (uncommitted) slots from an in-flight media transaction emit their m= lines below
     if (media_txn)
-        media_txn->forEachStaged([&](AmRtpAudio *s) {
-            offer.media.push_back(SdpMedia());
-            SdpMedia &m = offer.media.back();
-            if (override_frame_size)
-                m.frame_size = override_frame_size;
-            s->getEndpoint()->setLocalIP();
-            s->getSdpOffer(m);
-            if (s->getMediaType() == MT_AUDIO)
-                audio_1st_stream = false;
-            if (conn_addr.empty())
-                conn_addr = s->getEndpoint()->getLocalAddress();
-        });
+        media_txn->forEachStaged(emit_m);
     if (conn_addr.empty())
         conn_addr = RTPStream()->getEndpoint()->getLocalAddress();
 
@@ -1176,17 +1177,26 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
         SdpMedia &answer_media    = answer.media.back();
         auto     &answer_payloads = answer_media.payloads;
 
-        // a new m= line position has no slot yet (RFC 3264: lines are appended, never reordered)
-        bool new_position = (idx >= _rtp_streams.size());
+        // a new m= line position has no slot yet (RFC 3264: lines are appended, never reordered).
+        // total_slots covers committed + tx-staged so a mid-tx OA doesn't double-add.
+        size_t total_slots  = _rtp_streams.size() + (media_txn ? media_txn->stagedSlotCount() : 0);
+        bool   new_position = (idx >= total_slots);
 
         bool accept_audio = (m.type == MT_AUDIO && m.transport != TP_UDPTL && audio_1st_stream && m.port != 0);
         bool accept_fax =
             (m.type == MT_IMAGE && (m.transport == TP_UDPTL || m.transport == TP_UDPTLSUDPTL) && m.port != 0);
         bool accept = accept_audio || accept_fax;
 
-        AmRtpAudio *stream = accept ? RTPStream(idx) : nullptr;
-        if (!stream && accept && new_position)
-            stream = addRtpStream(); // sequential -> appended index matches the position
+        AmRtpAudio *stream = accept ? RTPStream(idx, /*allow_staged*/ true) : nullptr;
+        if (!stream && accept && new_position) {
+            // sequential -> appended index matches the position
+            if (media_txn) {
+                stream = createDetachedRtpStream();
+                media_txn->addStream(stream);
+            } else {
+                stream = addRtpStream();
+            }
+        }
 
         if (stream) {
             stream->setDisabled(false);
@@ -1225,9 +1235,12 @@ bool AmSession::getSdpAnswer(const AmSdp &offer, AmSdp &answer)
         } else {
             // rejected/unsupported m= line: a new position keeps an empty placeholder slot (no AmRtpAudio);
             // an existing stream the peer turned off (port 0) is disabled to match (RFC 3264). Reject with port 0.
-            if (new_position)
-                addEmptyRtpSlot((MediaType)m.type, m.transport);
-            else if (AmRtpAudio *s = RTPStream(idx))
+            if (new_position) {
+                if (media_txn)
+                    media_txn->addEmptySlot((MediaType)m.type, m.transport, (int)idx);
+                else
+                    addEmptyRtpSlot((MediaType)m.type, m.transport);
+            } else if (AmRtpAudio *s = RTPStream(idx, /*allow_staged*/ true))
                 s->setDisabled(true);
             answer_media.type       = m.type;
             answer_media.port       = 0;

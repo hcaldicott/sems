@@ -253,12 +253,13 @@ class AmSession : public virtual AmObject,
     void updateRefreshMethod(const string &headers);
 
     // media_idx selects the stream serving that m= line; the primary (0) is created lazily on first use
-    AmRtpAudio *RTPStream(unsigned media_idx = 0);
-    bool        hasRtpStream(unsigned media_idx = 0);
+    AmRtpAudio *RTPStream(unsigned media_idx = 0, bool allow_staged = false);
+    bool        hasRtpStream(unsigned media_idx = 0, bool allow_staged = false);
     AmRtpAudio *addRtpStream();               // create a new stream for the next m= line
     AmRtpAudio *addRtpStream(AmRtpAudio * s); // adopt a pre-built stream (its index is already set)
-    // build a new stream for the next m= line WITHOUT adding it (staged in a media transaction, adopted on commit)
-    AmRtpAudio *createDetachedRtpStream() { return new AmRtpAudio(this, rtp_interface, (int)_rtp_streams.size()); }
+    // build a new stream for the next m= line WITHOUT adding it (staged in a media transaction, adopted on commit).
+    // idx = live slots + already-staged in media_txn.
+    AmRtpAudio *createDetachedRtpStream();
     void addEmptyRtpSlot(MediaType type, TransProt transport) { _rtp_streams.push_back({ nullptr, type, transport }); }
     // if the slot at idx holds a placeholder, materialise an AmRtpAudio in place; otherwise return the existing one
     AmRtpAudio *activateRtpSlot(unsigned idx);

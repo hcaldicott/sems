@@ -20,8 +20,13 @@ AmMediaEndpoint *AmMediaTransaction::addEndpoint(AmMediaEndpoint *ep)
 
 AmRtpAudio *AmMediaTransaction::addStream(AmRtpAudio *s)
 {
-    new_streams.emplace_back(s);
+    staged_slots.push_back({ std::unique_ptr<AmRtpAudio>(s), MT_NONE, TP_NONE, s->getSdpMediaIndex() });
     return s;
+}
+
+void AmMediaTransaction::addEmptySlot(MediaType type, TransProt transport, int media_idx)
+{
+    staged_slots.push_back({ nullptr, type, transport, media_idx });
 }
 
 void AmMediaTransaction::bind(AmRtpStream *stream, AmMediaEndpoint *endpoint)
@@ -30,10 +35,30 @@ void AmMediaTransaction::bind(AmRtpStream *stream, AmMediaEndpoint *endpoint)
     stream->setPendingEndpoint(endpoint); // SDP is built from the staged endpoint until commit
 }
 
-void AmMediaTransaction::forEachStaged(const std::function<void(AmRtpAudio *)> &fn)
+void AmMediaTransaction::forEachStaged(const std::function<void(AmRtpAudio *, MediaType, TransProt)> &fn)
 {
-    for (auto &s : new_streams)
-        fn(s.get());
+    for (auto &slot : staged_slots) {
+        if (slot.stream)
+            fn(slot.stream.get(), slot.stream->getMediaType(), slot.stream->getTransport());
+        else
+            fn(nullptr, slot.type, slot.transport);
+    }
+}
+
+AmRtpAudio *AmMediaTransaction::getStream(int media_idx) const
+{
+    for (auto &slot : staged_slots)
+        if (slot.stream && slot.stream->getSdpMediaIndex() == media_idx)
+            return slot.stream.get();
+    return nullptr;
+}
+
+bool AmMediaTransaction::hasSlotAt(int media_idx) const
+{
+    for (auto &slot : staged_slots)
+        if (slot.media_idx == media_idx)
+            return true;
+    return false;
 }
 
 void AmMediaTransaction::commit()
@@ -52,9 +77,13 @@ void AmMediaTransaction::commit()
     }
     handoffs.clear();
 
-    for (auto &s : new_streams)
-        session->addRtpStream(s.release());
-    new_streams.clear();
+    for (auto &slot : staged_slots) {
+        if (slot.stream)
+            session->addRtpStream(slot.stream.release());
+        else
+            session->addEmptyRtpSlot(slot.type, slot.transport);
+    }
+    staged_slots.clear();
 
     disabled_streams.clear();
 }
@@ -73,7 +102,7 @@ void AmMediaTransaction::rollback()
         h.second->clearPendingEndpoint();
     handoffs.clear();
 
-    new_streams.clear();
+    staged_slots.clear();
 
     for (auto *s : disabled_streams)
         s->setDisabled(false);
