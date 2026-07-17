@@ -1013,12 +1013,17 @@ bool AmB2BMedia::canRelay(const SdpMedia &m)
            (m.transport == TP_UDP) || (m.transport == TP_UDPTL);
 }
 
-void AmB2BMedia::createStreams(const AmSdp &sdp)
+void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
 {
     // in tx mode new pairs land in pending_streams; per-leg AmMediaTransactions are built here
     // and handed to sessions at the end
     std::list<StreamPair> &target       = in_transaction_mode ? pending_streams : streams;
     size_t                 total_before = streams.size() + pending_streams.size();
+
+    // local in-dialog processing rejects extra m-lines via port=0 in the SIP reply
+    // don't grow pair/slot state for those extras
+    if (local && sdp.media.size() > total_before)
+        return;
 
     std::unique_ptr<AmMediaTransaction> tx_a, tx_b;
     if (in_transaction_mode) {
@@ -1076,14 +1081,14 @@ void AmB2BMedia::createStreams(const AmSdp &sdp)
     }
 }
 
-void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, AddressType addr_type)
+void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, AddressType addr_type, bool local)
 {
     AmLock lock(mutex);
 
     string        public_address;
     SdpConnection orig_conn = parser_sdp.conn; // needed for the 'quick workaround' for non-audio media
 
-    createStreams(parser_sdp);
+    createStreams(parser_sdp, local);
 
     string replaced_ports;
 

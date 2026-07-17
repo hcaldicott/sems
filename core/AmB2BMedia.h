@@ -419,8 +419,10 @@ class AmB2BMedia : public AmMediaSession
                          const SdpMedia &m, bool &needs_processing);
     void updateRelayPair(StreamPair & pair, bool a_leg, const string &connection_address, const SdpMedia &m);
 
-    /** first-seen pair creation from SDP; idempotent */
-    void createStreams(const AmSdp &sdp);
+    /** first-seen pair creation from SDP; idempotent.
+     *  local=true skips creation for m-lines beyond current pair count (local in-dialog processing
+     *  with extra m-lines that are disabled in the SIP reply but must not pollute pair/slot state). */
+    void createStreams(const AmSdp &sdp, bool local = false);
 
     // callback returning bool: true stops iteration early; void callbacks always iterate to the end
     template <typename F> void forEachPair(F && fn, bool include_pending = true)
@@ -514,7 +516,7 @@ class AmB2BMedia : public AmMediaSession
     /** Replace connection address and ports within SDP.
      *
      * Throws an exception (string) in case of error. (FIXME?) */
-    void replaceConnectionAddress(AmSdp & parser_sdp, bool a_leg, AddressType addr_type);
+    void replaceConnectionAddress(AmSdp & parser_sdp, bool a_leg, AddressType addr_type, bool local = false);
 
     /** replace offer inside given SDP with locally generated one (media streams
      * etc must be initialised like in case replaceConnectionAddress) */
