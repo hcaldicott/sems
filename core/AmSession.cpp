@@ -205,6 +205,11 @@ void AmSession::rollbackMediaTransaction()
     media_txn.reset();
 }
 
+void AmSession::dropMediaTransaction()
+{
+    media_txn.reset();
+}
+
 void AmSession::restoreMedia(const AmSdp &prev_local_sdp)
 {
     if (!prev_local_sdp.media.empty()) {

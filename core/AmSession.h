@@ -369,6 +369,7 @@ class AmSession : public virtual AmObject,
     void setMediaTransaction(unique_ptr<AmMediaTransaction> txn);
     void commitMediaTransaction();
     void rollbackMediaTransaction();
+    void dropMediaTransaction();
     void restoreMedia(const AmSdp &prev_local_sdp);
 
     bool isUseIceMediaStream() const { return use_ice_media_stream; }

@@ -972,11 +972,11 @@ void AmB2BMedia::clearAudio(bool a_leg)
         }
     });
 
-    // release the cleared leg's staged streams early so ports don't linger until the (missed) tx rollback
+    // release the cleared leg's staged streams;
     if (in_transaction_mode) {
         AmB2BSession *leg = a_leg ? a : b;
         if (leg)
-            leg->rollbackMediaTransaction();
+            leg->dropMediaTransaction();
     }
 
     // forget sessions to avoid using them once clearAudio is called
@@ -1025,10 +1025,15 @@ void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
     if (local && sdp.media.size() > total_before)
         return;
 
-    std::unique_ptr<AmMediaTransaction> tx_a, tx_b;
-    if (in_transaction_mode) {
-        tx_a = std::make_unique<AmMediaTransaction>(a, prev_a_leg_local_sdp);
-        tx_b = std::make_unique<AmMediaTransaction>(b, prev_b_leg_local_sdp);
+    // build per-leg txs only when there ARE new m-lines to stage
+    AmMediaTransaction *tx_a = nullptr, *tx_b = nullptr;
+    if (in_transaction_mode && sdp.media.size() > total_before) {
+        auto ta = std::make_unique<AmMediaTransaction>(a, prev_a_leg_local_sdp);
+        auto tb = std::make_unique<AmMediaTransaction>(b, prev_b_leg_local_sdp);
+        tx_a    = ta.get();
+        tx_b    = tb.get();
+        a->setMediaTransaction(std::move(ta));
+        b->setMediaTransaction(std::move(tb));
     }
 
     int idx = 0;
@@ -1048,8 +1053,7 @@ void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
 
         // pair ctor → StreamData ctor → setLeg → materialises the leg slot and initialize().
         // In tx mode setLeg stages the slot via tx_a/tx_b instead of pushing straight into the session.
-        auto &p = target.emplace_back(a, b, idx, initial, static_cast<MediaType>(m->type), m->transport, tx_a.get(),
-                                      tx_b.get());
+        auto &p = target.emplace_back(a, b, idx, initial, static_cast<MediaType>(m->type), m->transport, tx_a, tx_b);
         DBG("[%p] createStreams() created StreamPair for m=%d, state=%d%s", static_cast<void *>(this), idx,
             static_cast<int>(initial), in_transaction_mode ? " (staged)" : "");
 
@@ -1073,11 +1077,6 @@ void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
         apply(pending_b_out, p.b, &StreamData::setOutput);
         if (p.audio())
             syncPairWiring(p);
-    }
-
-    if (in_transaction_mode) {
-        a->setMediaTransaction(std::move(tx_a));
-        b->setMediaTransaction(std::move(tx_b));
     }
 }
 
@@ -1603,6 +1602,8 @@ void AmB2BMedia::beginTransactionMode()
               static_cast<void *>(b));
         return;
     }
+    DBG("[%p] TX begin (was in_tx=%d, a_done=%d, b_done=%d)", static_cast<void *>(this), in_transaction_mode,
+        a_leg_oa_completed, b_leg_oa_completed);
 
     prev_a_leg_local_sdp  = a_leg_local_sdp;
     prev_a_leg_remote_sdp = a_leg_remote_sdp;
@@ -1616,11 +1617,14 @@ void AmB2BMedia::beginTransactionMode()
 void AmB2BMedia::notifyOACompleted(bool a_leg)
 {
     AmLock lock(mutex);
+    DBG("[%p] TX notifyOACompleted(a_leg=%d) in_tx=%d a_done=%d b_done=%d", static_cast<void *>(this), a_leg,
+        in_transaction_mode, a_leg_oa_completed, b_leg_oa_completed);
     if (!in_transaction_mode)
         return;
     (a_leg ? a_leg_oa_completed : b_leg_oa_completed) = true;
     if (!(a_leg_oa_completed && b_leg_oa_completed))
         return;
+    DBG("[%p] TX commit (both legs done)", static_cast<void *>(this));
     if (!a || !b) {
         ERROR("BUG: notifyOACompleted with missing session (a=%p, b=%p)", static_cast<void *>(this->a),
               static_cast<void *>(this->b));
@@ -1636,6 +1640,7 @@ void AmB2BMedia::notifyOACompleted(bool a_leg)
 void AmB2BMedia::rollbackTransactionMode()
 {
     AmLock lock(mutex);
+    DBG("[%p] TX rollback (in_tx=%d)", static_cast<void *>(this), in_transaction_mode);
     if (!in_transaction_mode)
         return;
     if (!a || !b) {
@@ -1643,6 +1648,7 @@ void AmB2BMedia::rollbackTransactionMode()
               static_cast<void *>(b));
         return;
     }
+
     a->rollbackMediaTransaction();
     b->rollbackMediaTransaction();
     pending_streams.clear();
