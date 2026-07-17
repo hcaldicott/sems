@@ -1027,7 +1027,12 @@ void AmMediaEndpoint::onUdptlPacket(AmRtpPacket *p, AmMediaTransport *)
 {
     clearRTPTimeout(&p->recv_time);
     AmRtpStream *s = streams.front(); // UDPTL (T.38) is never bundled
-    AmLock       l(s->receive_mut);
+    if (s->relay_enabled && s->relay_raw) {
+        // b2b raw-relay: hand off to bufferPacket so relay_stream->relay(p) fires
+        s->bufferPacket(p);
+        return;
+    }
+    AmLock l(s->receive_mut);
     if (!s->receive_buf.insert(AmRtpStream::ReceiveBuffer::value_type(p->timestamp, p)).second) {
         mem.freePacket(p);
     }
