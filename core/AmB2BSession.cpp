@@ -480,7 +480,7 @@ void AmB2BSession::onRequestSent(const AmSipRequest &req)
     AmSession::onRequestSent(req);
 }
 
-void AmB2BSession::updateLocalSdp(AmSdp &sdp, const string &, unsigned int, bool local)
+void AmB2BSession::updateLocalSdp(AmSdp &sdp, const string &, unsigned int)
 {
     if (rtp_relay_mode == RTP_Direct)
         return; // nothing to do
@@ -492,11 +492,10 @@ void AmB2BSession::updateLocalSdp(AmSdp &sdp, const string &, unsigned int, bool
     }
 
     auto atype = dlg->getOutboundAddrType();
-    media_session->replaceConnectionAddress(sdp, a_leg, atype, local);
+    media_session->replaceConnectionAddress(sdp, a_leg, atype);
 }
 
-void AmB2BSession::updateLocalBody(AmMimeBody &body, const string &sip_msg_method, unsigned int sip_msg_cseq,
-                                   bool local)
+void AmB2BSession::updateLocalBody(AmMimeBody &body, const string &sip_msg_method, unsigned int sip_msg_cseq)
 {
     AmMimeBody *sdp = body.hasContentType(SIP_APPLICATION_SDP);
     if (!sdp)
@@ -513,7 +512,7 @@ void AmB2BSession::updateLocalBody(AmMimeBody &body, const string &sip_msg_metho
         return; // FIXME: throw an exception here?
     }
 
-    updateLocalSdp(parser_sdp, sip_msg_method, sip_msg_cseq, local);
+    updateLocalSdp(parser_sdp, sip_msg_method, sip_msg_cseq);
 
     // regenerate SDP
     string n_body;

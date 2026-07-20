@@ -330,12 +330,11 @@ class AmB2BSession : public AmSession, protected RelayController {
     void updateRelayStreams(const AmMimeBody &body, AmSdp &parser_sdp);
 
     /** replace connection with our address */
-    void updateLocalBody(AmMimeBody &body, const string &sip_msg_method, unsigned int sip_msg_cseq, bool local = false);
+    void updateLocalBody(AmMimeBody &body, const string &sip_msg_method, unsigned int sip_msg_cseq);
 
     /** Called when SDP relayed from other leg should be sent to the remote party.
      * Default implementation updates connection address and ports. */
-    virtual void updateLocalSdp(AmSdp &sdp, const string &sip_msg_method, unsigned int sip_msg_cseq,
-                                bool local = false);
+    virtual void updateLocalSdp(AmSdp &sdp, const string &sip_msg_method, unsigned int sip_msg_cseq);
 
     /**
      * Returns true and sets mapped_id if refer_id corresponds to an existing

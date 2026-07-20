@@ -406,6 +406,9 @@ class AmB2BMedia : public AmMediaSession
     // per-leg OA-completion flags accumulated during a tx; commit fires when both are true
     bool a_leg_oa_completed = false;
     bool b_leg_oa_completed = false;
+    // per-leg "next OA is yeti's own local reply" flag; consumed & cleared by notifyOACompleted
+    bool a_leg_local_oa = false;
+    bool b_leg_local_oa = false;
     // snapshots of local/remote SDPs taken at beginTransactionMode; restored on rollback
     AmSdp prev_a_leg_local_sdp, prev_a_leg_remote_sdp;
     AmSdp prev_b_leg_local_sdp, prev_b_leg_remote_sdp;
@@ -425,7 +428,7 @@ class AmB2BMedia : public AmMediaSession
     /** first-seen pair creation from SDP; idempotent.
      *  local=true skips creation for m-lines beyond current pair count (local in-dialog processing
      *  with extra m-lines that are disabled in the SIP reply but must not pollute pair/slot state). */
-    void createStreams(const AmSdp &sdp, bool local = false);
+    void createStreams(const AmSdp &sdp, bool a_leg);
 
     // callback returning bool: true stops iteration early; void callbacks always iterate to the end
     template <typename F> void forEachPair(F && fn, bool include_pending = true)
@@ -519,7 +522,7 @@ class AmB2BMedia : public AmMediaSession
     /** Replace connection address and ports within SDP.
      *
      * Throws an exception (string) in case of error. (FIXME?) */
-    void replaceConnectionAddress(AmSdp & parser_sdp, bool a_leg, AddressType addr_type, bool local = false);
+    void replaceConnectionAddress(AmSdp & parser_sdp, bool a_leg, AddressType addr_type);
 
     /** replace offer inside given SDP with locally generated one (media streams
      * etc must be initialised like in case replaceConnectionAddress) */
@@ -620,6 +623,8 @@ class AmB2BMedia : public AmMediaSession
     void rollbackTransactionMode();
     // record a leg's successful OA completion; when both legs reported, commit fires
     void notifyOACompleted(bool a_leg);
+    // arm the "next OA is local" flag for a leg (yeti's processLocalRequest calls this before dlg->reply)
+    void setLocalOa(bool a_leg);
 
     void createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con);
 

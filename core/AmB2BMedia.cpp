@@ -1013,7 +1013,7 @@ bool AmB2BMedia::canRelay(const SdpMedia &m)
            (m.transport == TP_UDP) || (m.transport == TP_UDPTL);
 }
 
-void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
+void AmB2BMedia::createStreams(const AmSdp &sdp, bool a_leg)
 {
     // in tx mode new pairs land in pending_streams; per-leg AmMediaTransactions are built here
     // and handed to sessions at the end
@@ -1022,7 +1022,7 @@ void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
 
     // local in-dialog processing rejects extra m-lines via port=0 in the SIP reply
     // don't grow pair/slot state for those extras
-    if (local && sdp.media.size() > total_before)
+    if ((a_leg ? a_leg_local_oa : b_leg_local_oa) && sdp.media.size() > total_before)
         return;
 
     // build per-leg txs only when there ARE new m-lines to stage
@@ -1080,14 +1080,14 @@ void AmB2BMedia::createStreams(const AmSdp &sdp, bool local)
     }
 }
 
-void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, AddressType addr_type, bool local)
+void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, AddressType addr_type)
 {
     AmLock lock(mutex);
 
     string        public_address;
     SdpConnection orig_conn = parser_sdp.conn; // needed for the 'quick workaround' for non-audio media
 
-    createStreams(parser_sdp, local);
+    createStreams(parser_sdp, a_leg);
 
     string replaced_ports;
 
@@ -1300,7 +1300,7 @@ void AmB2BMedia::createUpdateStreams(bool a_leg, const AmSdp &local_sdp, const A
         have_b_leg_remote_sdp = true;
     }
 
-    createStreams(local_sdp);
+    createStreams(local_sdp, a_leg);
     updateStreamsUnsafe(a_leg, ctrl, sdp_offer_owner);
 }
 
@@ -1436,7 +1436,7 @@ bool AmB2BMedia::replaceOffer(AmSdp &sdp, bool a_leg)
     TRACE("replacing offer with a local one\n");
     AmLock lock(mutex);
 
-    createStreams(sdp);
+    createStreams(sdp, a_leg);
     try {
         int idx = 0;
         forEachPair([&](StreamPair &pair) {
@@ -1614,11 +1614,20 @@ void AmB2BMedia::beginTransactionMode()
     in_transaction_mode   = true;
 }
 
+void AmB2BMedia::setLocalOa(bool a_leg)
+{
+    AmLock lock(mutex);
+    DBG("[%p] setLocalOa(a_leg=%d)", static_cast<void *>(this), a_leg);
+    (a_leg ? a_leg_local_oa : b_leg_local_oa) = true;
+}
+
 void AmB2BMedia::notifyOACompleted(bool a_leg)
 {
     AmLock lock(mutex);
-    DBG("[%p] TX notifyOACompleted(a_leg=%d) in_tx=%d a_done=%d b_done=%d", static_cast<void *>(this), a_leg,
-        in_transaction_mode, a_leg_oa_completed, b_leg_oa_completed);
+    DBG("[%p] TX notifyOACompleted(a_leg=%d) in_tx=%d a_done=%d b_done=%d local_oa=%d/%d", static_cast<void *>(this),
+        a_leg, in_transaction_mode, a_leg_oa_completed, b_leg_oa_completed, a_leg_local_oa, b_leg_local_oa);
+    // consume the "local OA" flag for this leg — it was set by yeti before dlg->reply
+    (a_leg ? a_leg_local_oa : b_leg_local_oa) = false;
     if (!in_transaction_mode)
         return;
     (a_leg ? a_leg_oa_completed : b_leg_oa_completed) = true;
