@@ -368,9 +368,9 @@ class AmSession : public virtual AmObject,
      *  (recovering the previous media) on a rejected one. */
     void setMediaTransaction(unique_ptr<AmMediaTransaction> txn);
     void commitMediaTransaction();
-    void rollbackMediaTransaction();
+    void rollbackMediaTransaction(bool send_reinvite = false);
     void dropMediaTransaction();
-    void restoreMedia(const AmSdp &prev_local_sdp);
+    void restoreMedia(const AmSdp &prev_local_sdp, bool send_reinvite = false);
 
     bool isUseIceMediaStream() const { return use_ice_media_stream; }
     void useIceMediaStream() { use_ice_media_stream = true; }

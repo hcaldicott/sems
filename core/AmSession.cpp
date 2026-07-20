@@ -197,11 +197,11 @@ void AmSession::commitMediaTransaction()
     media_txn.reset();
 }
 
-void AmSession::rollbackMediaTransaction()
+void AmSession::rollbackMediaTransaction(bool send_reinvite)
 {
     if (!media_txn)
         return;
-    media_txn->rollback();
+    media_txn->rollback(send_reinvite);
     media_txn.reset();
 }
 
@@ -210,12 +210,15 @@ void AmSession::dropMediaTransaction()
     media_txn.reset();
 }
 
-void AmSession::restoreMedia(const AmSdp &prev_local_sdp)
+void AmSession::restoreMedia(const AmSdp &prev_local_sdp, bool send_reinvite)
 {
     if (!prev_local_sdp.media.empty()) {
         setMediaType((MediaType)prev_local_sdp.media[0].type);
         setMediaTransport(prev_local_sdp.media[0].transport);
     }
+
+    if (!send_reinvite)
+        return;
 
     // recovery re-INVITE with the previous (pre-reconfig) SDP
     AmSdp sdp = prev_local_sdp;

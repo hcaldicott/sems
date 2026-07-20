@@ -88,7 +88,7 @@ void AmMediaTransaction::commit()
     disabled_streams.clear();
 }
 
-void AmMediaTransaction::rollback()
+void AmMediaTransaction::rollback(bool send_reinvite)
 {
     // the live binding was never touched - just drop the staged objects
     for (auto &b : bindings)
@@ -113,5 +113,5 @@ void AmMediaTransaction::rollback()
         if (AmRtpStream *s = session->RTPStream((unsigned)i))
             s->setTransport(prev_local_sdp.media[i].transport);
 
-    session->restoreMedia(prev_local_sdp);
+    session->restoreMedia(prev_local_sdp, send_reinvite);
 }

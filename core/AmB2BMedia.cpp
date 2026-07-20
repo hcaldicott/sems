@@ -1639,24 +1639,29 @@ void AmB2BMedia::notifyOACompleted(bool a_leg)
 
 void AmB2BMedia::rollbackTransactionMode()
 {
-    AmLock lock(mutex);
-    DBG("[%p] TX rollback (in_tx=%d)", static_cast<void *>(this), in_transaction_mode);
-    if (!in_transaction_mode)
-        return;
-    if (!a || !b) {
-        ERROR("BUG: rollbackTransactionMode with missing session (a=%p, b=%p)", static_cast<void *>(a),
-              static_cast<void *>(b));
-        return;
+    AmB2BSession *sa = nullptr, *sb = nullptr;
+    {
+        AmLock lock(mutex);
+        DBG("[%p] TX rollback (in_tx=%d)", static_cast<void *>(this), in_transaction_mode);
+        if (!in_transaction_mode)
+            return;
+        if (!a || !b) {
+            ERROR("BUG: rollbackTransactionMode with missing session (a=%p, b=%p)", static_cast<void *>(a),
+                  static_cast<void *>(b));
+            return;
+        }
+        sa = a;
+        sb = b;
+        pending_streams.clear();
+        a_leg_local_sdp     = prev_a_leg_local_sdp;
+        a_leg_remote_sdp    = prev_a_leg_remote_sdp;
+        b_leg_local_sdp     = prev_b_leg_local_sdp;
+        b_leg_remote_sdp    = prev_b_leg_remote_sdp;
+        in_transaction_mode = false;
     }
 
-    a->rollbackMediaTransaction();
-    b->rollbackMediaTransaction();
-    pending_streams.clear();
-    a_leg_local_sdp     = prev_a_leg_local_sdp;
-    a_leg_remote_sdp    = prev_a_leg_remote_sdp;
-    b_leg_local_sdp     = prev_b_leg_local_sdp;
-    b_leg_remote_sdp    = prev_b_leg_remote_sdp;
-    in_transaction_mode = false;
+    sa->rollbackMediaTransaction(false);
+    sb->rollbackMediaTransaction(false);
 }
 
 void AmB2BMedia::createHoldAnswer(bool a_leg, const AmSdp &offer, AmSdp &answer, bool use_zero_con)

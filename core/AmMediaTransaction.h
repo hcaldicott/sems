@@ -64,5 +64,5 @@ class AmMediaTransaction {
     size_t      stagedSlotCount() const { return staged_slots.size(); }
 
     void commit();
-    void rollback();
+    void rollback(bool send_reinvite = false);
 };
