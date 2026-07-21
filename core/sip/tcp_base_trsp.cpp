@@ -699,7 +699,6 @@ void trsp_worker::remove_connection(tcp_base_trsp *client_sock)
         if (client_sock->sd != sock_it->second->sd) {
             ERROR("attempt to remove connection alias with mismatched sd:%d, saved_sd:%d", client_sock->sd,
                   sock_it->second->sd);
-            dec_ref(client_sock);
             return;
         }
 
