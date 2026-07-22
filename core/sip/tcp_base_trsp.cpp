@@ -663,6 +663,13 @@ trsp_worker::~trsp_worker()
     event_base_free(evbase);
 }
 
+// runs on the worker evbase thread
+void on_deferred_remove(evutil_socket_t, short, void *arg)
+{
+    auto *sock = static_cast<tcp_base_trsp *>(arg);
+    dec_ref(sock);
+}
+
 int trsp_worker::add_connection(tcp_base_trsp *new_sock)
 {
     string conn_id = get_connection_id(new_sock);
@@ -675,7 +682,11 @@ int trsp_worker::add_connection(tcp_base_trsp *new_sock)
     if (!ret.second) {
         DBG3("attempt to add duplicate connection alias %s on accept. sd:%d. replace old one", conn_id.data(),
              new_sock->get_sd());
-        dec_ref(ret.first->second);
+
+        // delete old sock (ret.first->second), deletion must run on the worker thread
+        struct timeval tv = { 0, 0 };
+        event_base_once(evbase, -1, EV_TIMEOUT, on_deferred_remove, ret.first->second, &tv);
+
         ret.first->second = new_sock;
     }
 
