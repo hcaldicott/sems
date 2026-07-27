@@ -1,3 +1,11 @@
+sems (1.203.0) stable; urgency=low
+  * media refactoring
+    * move all media streams ownership to AmSession. AmB2BMedia uses idx in AmSession::_rtp_streams to refer media stream
+    * add AmMediaTransaction for media pairs state rollback
+  * trsp_worker: remove excess dec_ref. fixes use-after-free
+  * trsp_worker: deffered removal in events loop for old connections on collisions. fixes racing
+ -- Michael Furmur <furmur@pm.me>  Mon, 27 Jul 2026 14:20:43 +0300
+
 sems (1.202.1) stable; urgency=low
   * resolver: fix str2ip for IPv6 reference names
  -- Michael Furmur <furmur@pm.me>  Fri, 10 Jul 2026 12:53:53 +0300
