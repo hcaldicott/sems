@@ -223,13 +223,18 @@ bool dns_ip_entry::union_rr(const vector<dns_base_entry *> &entries)
 {
     for (auto &entry : entries) {
         ip_entry &casted_entry = *dynamic_cast<ip_entry *>(entry);
-        if (count_if(ip_vec.begin(), ip_vec.end(), [&casted_entry](const dns_base_entry *e) {
-                return casted_entry == *dynamic_cast<const ip_entry *>(e);
-            }))
-        {
-            continue;
+        auto      it           = find_if(ip_vec.begin(), ip_vec.end(), [&casted_entry](const dns_base_entry *e) {
+            return casted_entry == *dynamic_cast<const ip_entry *>(e);
+        });
+        if (it != ip_vec.end()) {
+            // same IP already cached: just renew its TTL
+            if ((*it)->expire < casted_entry.expire)
+                (*it)->expire = casted_entry.expire;
+        } else {
+            ip_vec.push_back(casted_entry.clone());
         }
-        ip_vec.push_back(casted_entry.clone());
+        if (expire < casted_entry.expire)
+            expire = casted_entry.expire;
     }
     return true;
 }
@@ -1177,14 +1182,14 @@ class dns_negative_entry : public dns_entry {
     string          to_str() override { return "negative"; }
 };
 
-int _resolver::query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type)
+int _resolver::query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type, bool force)
 {
     u_char dns_res[DNS_REPLY_BUFFER_SIZE];
 
     if (name.empty())
         return -1;
 
-    if (blacklist_ttl) {
+    if (blacklist_ttl && !force) {
         dns_bucket *b = cache.get_bucket(hashlittle(name.data(), name.length(), 0));
         dns_entry  *e = b->find(string{ name });
         if (e) {
@@ -1276,6 +1281,15 @@ int _resolver::query_dns(const std::string_view &name, dns_rr_type rr_type, addr
             } else {
                 DBG("DNS cache: ignore duplicate entry. name: '%s', hashed: %s, parsed: %s", entry_name.c_str(),
                     hash_entry->to_str().c_str(), parsed_entry->to_str().c_str());
+            }
+            dec_ref(hash_entry);
+        } else if (hash_entry->get_type() == dns_r_negative) {
+            // a fresh positive answer supersedes a negative entry
+            b->remove(entry_name);
+            parsed_entry->init();
+            if (b->insert(entry_name, parsed_entry)) {
+                DBG3("DNS cache: replaced negative entry: '%s' -> %s", entry_name.c_str(),
+                     parsed_entry->to_str().c_str());
             }
             dec_ref(hash_entry);
         } else {

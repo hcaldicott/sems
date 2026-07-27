@@ -179,6 +179,7 @@ void CoreRpc::init_rpc_tree()
     auto &request_resolver = reg_leaf(request, "resolver");
     reg_method(request_resolver, "clear", "", "", &CoreRpc::requestResolverClear, this);
     reg_method(request_resolver, "get", "", "", &CoreRpc::requestResolverGet, this);
+    reg_method(request_resolver, "refresh", "", "", &CoreRpc::requestResolverRefresh, this);
     auto &request_cerificates = reg_leaf(request, "certificates");
     reg_method(request_cerificates, "reload", "", "", &CoreRpc::requestReloadCertificate, this);
     auto &set_ssl_key_log = reg_leaf(request, "ssl_key_log");
@@ -727,6 +728,27 @@ void CoreRpc::requestResolverGet(const AmArg &args, AmArg &ret)
 
     h.dumpIps(ret["targets"], priority);
     h.dump(ret["handler"]);
+}
+
+void CoreRpc::requestResolverRefresh(const AmArg &args, AmArg &ret)
+{
+    if (!args.size()) {
+        throw AmSession::Exception(500, "missed parameter");
+    }
+    string target = args[0].asCStr();
+    if (target.empty())
+        return;
+
+    // force a fresh query (bypassing the cache/blacklist); fresh answers are
+    // merged into the existing entry, then report the resulting state
+    if (target[0] == '_') {
+        resolver::instance()->query_dns(target, dns_r_srv, IPnone, true);
+    } else {
+        resolver::instance()->query_dns(target, dns_r_ip, IPv4, true);
+        resolver::instance()->query_dns(target, dns_r_ip, IPv6, true);
+    }
+
+    requestResolverGet(args, ret);
 }
 
 void CoreRpc::requestLogDump(const AmArg &args, AmArg &ret)

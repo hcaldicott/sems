@@ -280,7 +280,8 @@ class _resolver : public AmThread {
 
     static int str2ip(const std::string_view &name, sockaddr_storage *sa, const address_type types);
 
-    int query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type);
+    // force=true bypasses the blacklist guard
+    int query_dns(const std::string_view &name, dns_rr_type rr_type, address_type addr_type, bool force = false);
 
     /**
      * Transforms all elements of a destination list into

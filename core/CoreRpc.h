@@ -82,6 +82,7 @@ class CoreRpc final : public RpcTreeHandler, public AmDynInvokeFactory {
 
     rpc_handler requestResolverClear;
     rpc_handler requestResolverGet;
+    rpc_handler requestResolverRefresh;
     rpc_handler requestConnTerminate;
     rpc_handler requestLogDump;
 
