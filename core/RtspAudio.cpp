@@ -32,6 +32,8 @@ RtspAudio::RtspAudio(AmSession *_s, const string &uri, int samplerate_hint)
     getEndpoint()->setLocalIP(ss.ss_family == AF_INET ? AT_V4 : AT_V6);
 
     open(uri, samplerate);
+
+    _s->adoptAuxStream(this);
 }
 
 

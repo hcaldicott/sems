@@ -164,6 +164,9 @@ class AmSession : public virtual AmObject,
     };
     list<RtpStreamSlot> _rtp_streams;
 
+    // parallel (non-SDP) streams
+    list<unique_ptr<AmRtpAudio>> _aux_streams;
+
     /** in-flight media reconfiguration; committed/rolled back on the re-INVITE result */
     unique_ptr<AmMediaTransaction> media_txn;
 
@@ -267,6 +270,9 @@ class AmSession : public virtual AmObject,
 
     // hand an endpoint's ownership to the session (once, at creation/commit); it lives until the session ends
     AmMediaEndpoint *addMediaEndpoint(AmMediaEndpoint * ep);
+
+    // hand a parallel (non-SDP) stream's ownership to the session (e.g. RtspAudio).
+    void adoptAuxStream(AmRtpAudio * s);
 
     /** must be set before session is started! i.e. in constructor */
     bool enable_zrtp;

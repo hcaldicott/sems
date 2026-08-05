@@ -121,6 +121,8 @@ AmSession::~AmSession()
 {
     DBG3("~AmSession[%p]", this);
 
+    _endpoints.clear();
+
     for (vector<AmSessionEventHandler *>::iterator evh = ev_handlers.begin(); evh != ev_handlers.end(); evh++) {
 
         if ((*evh)->destroy)
@@ -256,6 +258,11 @@ AmRtpAudio *AmSession::addRtpStream()
     _rtp_streams.push_back(
         { unique_ptr<AmRtpAudio>(new AmRtpAudio(this, rtp_interface, media_idx)), MT_NONE, TP_NONE });
     return _rtp_streams.back().stream.get();
+}
+
+void AmSession::adoptAuxStream(AmRtpAudio *s)
+{
+    _aux_streams.push_back(unique_ptr<AmRtpAudio>(s));
 }
 
 AmRtpAudio *AmSession::addRtpStream(AmRtpAudio *s)
