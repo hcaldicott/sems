@@ -1,3 +1,9 @@
+sems (1.204.0) stable; urgency=low
+  * resolver: drop negative entry after refresh
+  * resolver: new rpc method core.request.resolver.refresh
+  * pass RtspAudio ownerwship to AmSession in RtspAudio ctor
+ -- Michael Furmur <furmur@pm.me>  Thu, 06 Aug 2026 15:35:02 +0300
+
 sems (1.203.0) stable; urgency=low
   * media refactoring
     * move all media streams ownership to AmSession. AmB2BMedia uses idx in AmSession::_rtp_streams to refer media stream
