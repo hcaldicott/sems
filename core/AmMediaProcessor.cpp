@@ -459,8 +459,8 @@ void AmMediaProcessorThread::process(AmEvent *e)
         } break;
         case AmMediaProcessor::ClearSession:
         {
-            AmMediaSession                 *s    = sr->s;
-            set<AmMediaSession *>::iterator s_it = sessions.find(s);
+            AmMediaSession *s    = sr->s;
+            auto            s_it = sessions.find(s);
             if (s_it != sessions.end()) {
                 sessions.erase(s_it);
                 s->clearAudio();
@@ -470,8 +470,8 @@ void AmMediaProcessorThread::process(AmEvent *e)
         } break;
         case AmMediaProcessor::SoftRemoveSession:
         {
-            AmMediaSession                 *s    = sr->s;
-            set<AmMediaSession *>::iterator s_it = sessions.find(s);
+            AmMediaSession *s    = sr->s;
+            auto            s_it = sessions.find(s);
             if (s_it != sessions.end()) {
                 sessions.erase(s_it);
                 DBG("[%p] Session %p removed softly from the scheduler", to_void(this), to_void(s));
