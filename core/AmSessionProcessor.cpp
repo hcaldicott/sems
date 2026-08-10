@@ -140,6 +140,7 @@ void AmSessionProcessor::get_statistics_time(StatCounterInterface::iterate_func_
 
 AmSessionProcessorThread::AmSessionProcessorThread()
     : events(this)
+    , stop_requested(false)
     , runcond(false)
 {
 }
@@ -160,7 +161,6 @@ void AmSessionProcessorThread::run()
 
     event_stats.addLabel("thread", int2str(gettid()));
 
-    stop_requested.set(false);
     while (true) {
 
         DBG3("running processing loop");
