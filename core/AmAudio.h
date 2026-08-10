@@ -64,7 +64,7 @@ using std::string;
 // Wallclock definitions:
 //
 // The wallclock is defined such that:
-//  - it is the highest clock rate is the system
+//  - it is the highest clock rate in the system
 //  - any supported sample rate must be smaller
 //  - the difference between scaled down timers
 //    is always consistent with respect to overflows.
