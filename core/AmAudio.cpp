@@ -423,7 +423,7 @@ void AmAudio::stereo2mono(unsigned char *out_buf, unsigned char *in_buf, unsigne
     short *end = (short *)(in_buf + size);
     short *out = (short *)out_buf;
 
-    while (in != end) {
+    while (in < end) {
         *(out++) = (*in + *(in + 1)) / 2;
         in += 2;
     }
