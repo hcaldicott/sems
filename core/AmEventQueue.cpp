@@ -121,6 +121,7 @@ void AmEventQueue::processEvents(EventStats *stats)
             event.release();
         }
 
+        event.reset();
         m_queue.lock();
     }
 

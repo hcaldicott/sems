@@ -64,6 +64,7 @@ void AmEventFdQueue::processEvents()
         if (consumed)
             event.release();
 
+        event.reset();
         m_queue.lock();
     }
 
