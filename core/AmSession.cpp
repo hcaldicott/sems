@@ -672,7 +672,7 @@ void AmSession::stop()
 {
     DBG3("AmSession::stop()");
 
-    if (!isDetached())
+    if (isProcessingMedia())
         AmMediaProcessor::instance()->clearSession(this);
     else
         clearAudio();

@@ -157,12 +157,6 @@ class AmMediaSession {
      * onMediaProcessingTerminated is required for proper function. */
     virtual bool isProcessingMedia() { return processing_media.get(); }
 
-    /** Indicates if the object is used by media processor.
-     *
-     * Seems to be duplicate to isProcessingMedia(). It was kept to reduce
-     * number of changes in existing code. */
-    virtual bool isDetached() { return !isProcessingMedia(); }
-
     virtual void getInfo(AmArg &ret) { ret = "not implemented"; }
 };
 
