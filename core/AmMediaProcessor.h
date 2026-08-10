@@ -85,7 +85,7 @@ class AmMediaSession {
      *
      * \param buffer multi-purpose space given from outside (AmMediaProcessorThread)
      *
-     * Buffer given as parametr is usable for anything, originally was intended for data
+     * Buffer given as parameter is usable for anything, originally was intended for data
      * read from one stream before putting to another stream.
      *
      * The reason for having this buffer as parameter is that buffer size for
