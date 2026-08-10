@@ -1,3 +1,7 @@
+sems (1.204.1) stable; urgency=low
+  * event queues: fix deadlock in queue events dtor
+ -- Michael Furmur <furmur@pm.me>  Mon, 10 Aug 2026 12:51:58 +0300
+
 sems (1.204.0) stable; urgency=low
   * resolver: drop negative entry after refresh
   * resolver: new rpc method core.request.resolver.refresh
