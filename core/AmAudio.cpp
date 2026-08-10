@@ -212,7 +212,7 @@ unsigned int AmLibSamplerateResamplingState::resample(unsigned char *samples, un
         if (src_err) {
             DBG("resample error: '%s'", src_strerror(src_err));
         } else {
-            signed short *samples_s = (signed short *)(unsigned char *)samples;
+            signed short *samples_s = (signed short *)samples;
 
             resample_out_buf_samples += src_data.output_frames_gen;
 
