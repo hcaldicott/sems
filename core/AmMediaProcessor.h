@@ -255,7 +255,7 @@ class AmMediaProcessor {
      * InsertSession     : inserts the session to the processor
      * RemoveSession     : remove the session from the processor
      * SoftRemoveSession : remove the session from the processor but leave it attached
-     * ClearSession      : remove the session from processor and clear audio
+     * ClearSession      : remove the session from the processor and clear audio
      */
     enum { InsertSession, RemoveSession, SoftRemoveSession, ClearSession };
 
