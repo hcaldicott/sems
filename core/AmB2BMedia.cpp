@@ -218,8 +218,6 @@ void StreamData::initialize(bool audio)
     enable_dtmf_transcoding       = false;
     force_symmetric_rtp           = false;
     enable_inbound_dtmf_filtering = false;
-    enable_dtmf_rtp_filtering     = false;
-    enable_dtmf_rtp_detection     = false;
     relay_map.clear();
     relay_mask.clear();
     relay_enabled = false;

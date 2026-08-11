@@ -79,10 +79,6 @@ class StreamData {
     bool enable_dtmf_transcoding;
     /** filter out samples with inbound dtmf */
     bool enable_inbound_dtmf_filtering;
-    /** Enables RTP DTMF (2833/4733) filtering */
-    bool enable_dtmf_rtp_filtering;
-    /** Enables DTMF detection with RTP DTMF (2833/4733) */
-    bool enable_dtmf_rtp_detection;
     /** Low fidelity payloads for which inband DTMF transcoding should be used */
     vector<SdpPayload> lowfi_payloads;
     /** DTMF detector used by dtmf_queue */
