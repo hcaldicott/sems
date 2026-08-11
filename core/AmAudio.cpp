@@ -540,7 +540,7 @@ unsigned int AmAudio::resampleInput(unsigned char *buffer, unsigned int s, int i
 unsigned int AmAudio::resampleOutput(unsigned char *buffer, unsigned int s, int input_sample_rate,
                                      int output_sample_rate)
 {
-    if ((input_sample_rate == output_sample_rate) && !output_resampling_state.get()) {
+    if (input_sample_rate == output_sample_rate) {
         return s;
     }
 
