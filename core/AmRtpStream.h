@@ -74,7 +74,7 @@ class AmMediaEndpoint;
 struct SdpPayload;
 struct amci_payload_t;
 
-/** helper class for assigning boolean floag to a payload ID
+/** helper class for assigning boolean flag to a payload ID
  * it is used to check if the payload should be relayed or not */
 class PayloadMask {
   private:
