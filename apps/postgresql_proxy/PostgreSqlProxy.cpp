@@ -664,6 +664,8 @@ void response2AmArg(lua_State *state, AmArg &arg)
             response2AmArg(state, *value);
             lua_pop(state, 3);
         }
+        if (isArgUndef(arg))
+            arg.assertStruct();
     }
 }
 
