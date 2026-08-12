@@ -33,6 +33,7 @@ class PostgreSqlProxy : public AmThread, public AmEventFdQueue, public AmEventHa
         AmArg  parsed_value;
         string error;
         bool   timeout;
+        bool   forward;
     };
 
     struct Query {
@@ -57,6 +58,8 @@ class PostgreSqlProxy : public AmThread, public AmEventFdQueue, public AmEventHa
     int                   init();
     bool                  checkQueryData(const PGQueryData &data);
     Response             *find_resp_for_query(const string &query, const vector<AmArg> &params);
+    void                  run_lua_response(Response *response, const string &query, const vector<AmArg> &params);
+    int                   insert_resp_lua_chunk(const string &query, const string &chunk, bool is_file, string &error);
     std::optional<string> handle_query(const string &query, const string &sender_id, const string &token,
                                        const vector<AmArg> &params);
     std::optional<string> handle_query_data(const PGQueryData &qdata);
@@ -73,6 +76,10 @@ class PostgreSqlProxy : public AmThread, public AmEventFdQueue, public AmEventHa
     string                                                          upstream_queue;
     bool                                                            log_pg_events;
 
+    // unique address exposed to lua as the `pgupstream` global:
+    // a mapped lua function returns it to forward the query to upstream_queue
+    static char upstream_sentinel;
+
     void insert_response(const string &query, const vector<AmArg> &params, std::unique_ptr<Response> &response);
 
   protected:
@@ -80,8 +87,10 @@ class PostgreSqlProxy : public AmThread, public AmEventFdQueue, public AmEventHa
     async_rpc_handler stackClear;
     async_rpc_handler stackShow;
     async_rpc_handler mapInsert;
+    async_rpc_handler mapInsertLua;
     async_rpc_handler mapClear;
     async_rpc_handler mapShow;
+    async_rpc_handler requestExecute;
     async_rpc_handler showStatsAsync;
     async_rpc_handler reload;
     async_rpc_handler logPgEventsAsync;
@@ -90,8 +99,10 @@ class PostgreSqlProxy : public AmThread, public AmEventFdQueue, public AmEventHa
     void              clearStack(const AmArg &args, AmArg &ret);
     void              showStack(const AmArg &args, AmArg &ret);
     void              insertMap(const AmArg &args, AmArg &ret);
+    void              insertLuaMap(const AmArg &args, AmArg &ret);
     void              clearMap(const AmArg &args, AmArg &ret);
     void              showMap(const AmArg &args, AmArg &ret);
+    void              executeSync(const AmArg &args, AmArg &ret);
     void              showStatsSync(const AmArg &args, AmArg &ret);
     void              logPgEventsSync(const AmArg &args, AmArg &ret);
 

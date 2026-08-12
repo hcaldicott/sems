@@ -46,13 +46,16 @@ enum RpcMethodId {
     MethodStackClear,
     MethodStackShow,
     MethodMapInsert,
+    MethodMapInsertLua,
     MethodMapClear,
     MethodMapShow,
+    MethodRequestExecute,
     MethodShowStats,
     MethodLogPgEvents
 };
 
 PostgreSqlProxy *PostgreSqlProxy::_instance = 0;
+char             PostgreSqlProxy::upstream_sentinel;
 
 PostgreSqlProxy *PostgreSqlProxy::instance()
 {
@@ -79,6 +82,8 @@ PostgreSqlProxy::PostgreSqlProxy()
     luaL_openlibs(state);
     lua_pushlightuserdata(state, state);
     lua_setglobal(state, "pgtimeout");
+    lua_pushlightuserdata(state, &upstream_sentinel);
+    lua_setglobal(state, "pgupstream");
 }
 
 PostgreSqlProxy::~PostgreSqlProxy()
@@ -235,6 +240,18 @@ bool PostgreSqlProxy::mapInsert(const string &connection_id, const AmArg &reques
     return true;
 }
 
+bool PostgreSqlProxy::mapInsertLua(const string &connection_id, const AmArg &request_id, const AmArg &params)
+{
+    postEvent(new JsonRpcRequestEvent(connection_id, request_id, false, MethodMapInsertLua, params));
+    return true;
+}
+
+bool PostgreSqlProxy::requestExecute(const string &connection_id, const AmArg &request_id, const AmArg &params)
+{
+    postEvent(new JsonRpcRequestEvent(connection_id, request_id, false, MethodRequestExecute, params));
+    return true;
+}
+
 bool PostgreSqlProxy::mapShow(const string &connection_id, const AmArg &request_id, const AmArg &params)
 {
     postEvent(new JsonRpcRequestEvent(connection_id, request_id, false, MethodMapShow, params));
@@ -332,6 +349,25 @@ void PostgreSqlProxy::insertMap(const AmArg &args, AmArg &ret)
     insert_response(query, params, response);
 }
 
+void PostgreSqlProxy::insertLuaMap(const AmArg &args, AmArg &ret)
+{
+    string query, source;
+    if (isArgArray(args) && args.size() >= 2) {
+        query  = arg2str(args[0]);
+        source = arg2str(args[1]);
+    } else if (isArgStruct(args) && args.hasMember("query") && args.hasMember("source")) {
+        query  = arg2str(args["query"]);
+        source = arg2str(args["source"]);
+    } else {
+        ret = format("incorrect arguments of commands");
+        return;
+    }
+
+    string error;
+    if (insert_resp_lua_chunk(query, source, false /*is_file*/, error))
+        ret = error;
+}
+
 void PostgreSqlProxy::clearMap(const AmArg &, AmArg &)
 {
     resp_map.clear();
@@ -351,6 +387,49 @@ void PostgreSqlProxy::showMap(const AmArg &, AmArg &ret)
         for (auto &param : query.params)
             ret.back()["params"].push(param);
     }
+}
+
+void PostgreSqlProxy::executeSync(const AmArg &args, AmArg &ret)
+{
+    if (!isArgArray(args) || args.size() < 1) {
+        ret = format("query expected");
+        return;
+    }
+
+    string        query = arg2str(args[0]);
+    vector<AmArg> params;
+    for (size_t i = 1; i < args.size(); i++)
+        params.push_back(args[i]);
+
+    const auto response = find_resp_for_query(query, params);
+    if (!response) {
+        ret = format("no mapping for the query: <{}>", query);
+        return;
+    }
+
+    if (response->ref_index) {
+        run_lua_response(response, query, params);
+        if (response->forward) {
+            // reply is synchronous, there is nowhere to forward to
+            ret = format("query <{}> would forward to upstream", query);
+            return;
+        }
+    } else if (!response->upstream_queue.empty()) {
+        ret = format("query <{}> is mapped to upstream", query);
+        return;
+    }
+
+    if (!response->error.empty()) {
+        ret = response->error;
+        return;
+    }
+
+    if (response->timeout) {
+        ret = format("timeout");
+        return;
+    }
+
+    ret = response->parsed_value;
 }
 
 void PostgreSqlProxy::showStatsSync(const AmArg &, AmArg &ret)
@@ -402,8 +481,13 @@ void PostgreSqlProxy::init_rpc_tree()
     reg_method(stack, "show", "stack show", "", &PostgreSqlProxy::stackShow, this);
     auto &map = reg_leaf(root, "map");
     reg_method(map, "insert", "map insert", "", &PostgreSqlProxy::mapInsert, this);
+    reg_method(map, "insert_lua", "map insert lua response function from source string", "",
+               &PostgreSqlProxy::mapInsertLua, this);
     reg_method(map, "clear", "map clear", "", &PostgreSqlProxy::mapClear, this);
     reg_method(map, "show", "map show", "", &PostgreSqlProxy::mapShow, this);
+
+    auto &request = reg_leaf(root, "request");
+    reg_method(request, "execute", "execute query against the mock map", "", &PostgreSqlProxy::requestExecute, this);
 
     auto &show = reg_leaf(root, "show");
     reg_method(show, "stats", "show module stats", "", &PostgreSqlProxy::showStatsAsync, this);
@@ -493,15 +577,17 @@ void PostgreSqlProxy::process_jsonrpc_event(JsonRpcRequestEvent *ev)
 {
     AmArg ret;
     switch (ev->method_id) {
-    case MethodReload:      reloadMap(ev->params, ret); break;
-    case MethodStackPush:   pushStack(ev->params, ret); break;
-    case MethodStackClear:  clearStack(ev->params, ret); break;
-    case MethodStackShow:   showStack(ev->params, ret); break;
-    case MethodMapClear:    clearMap(ev->params, ret); break;
-    case MethodMapInsert:   insertMap(ev->params, ret); break;
-    case MethodMapShow:     showMap(ev->params, ret); break;
-    case MethodShowStats:   showStatsSync(ev->params, ret); break;
-    case MethodLogPgEvents: logPgEventsSync(ev->params, ret); break;
+    case MethodReload:         reloadMap(ev->params, ret); break;
+    case MethodStackPush:      pushStack(ev->params, ret); break;
+    case MethodStackClear:     clearStack(ev->params, ret); break;
+    case MethodStackShow:      showStack(ev->params, ret); break;
+    case MethodMapClear:       clearMap(ev->params, ret); break;
+    case MethodMapInsert:      insertMap(ev->params, ret); break;
+    case MethodMapInsertLua:   insertLuaMap(ev->params, ret); break;
+    case MethodMapShow:        showMap(ev->params, ret); break;
+    case MethodRequestExecute: executeSync(ev->params, ret); break;
+    case MethodShowStats:      showStatsSync(ev->params, ret); break;
+    case MethodLogPgEvents:    logPgEventsSync(ev->params, ret); break;
     }
 
     postJsonRpcReply(*ev, ret);
@@ -547,7 +633,7 @@ static inline bool is_index(const char *name)
 {
     char *endptr = NULL;
     long  l_i    = strtol(name, &endptr, 10);
-    return endptr && *endptr == '\0' && l_i;
+    return endptr && *endptr == '\0' && l_i > 0;
 }
 
 void response2AmArg(lua_State *state, AmArg &arg)
@@ -567,7 +653,7 @@ void response2AmArg(lua_State *state, AmArg &arg)
         while (lua_next(state, -2) != 0) {
             lua_pushvalue(state, -2);
             AmArg *value;
-            if (is_index(lua_tostring(state, -1))) {
+            if (lua_isnumeric(state, -1) && is_index(lua_tostring(state, -1))) {
                 int index;
                 str2int(lua_tostring(state, -1), index);
                 value = &arg[index - 1];
@@ -619,6 +705,45 @@ void response2AmArg(lua_State *state, AmArg &arg)
     }
 }
 
+void PostgreSqlProxy::run_lua_response(Response *response, const string &query, const vector<AmArg> &params)
+{
+    response->timeout = false;
+    response->forward = false;
+    response->error.clear();
+    response->parsed_value.clear();
+    response->value.clear();
+
+    if (!lua_checkstack(state, params.size() + 2)) {
+        response->error = "failed to ensure lua stacksize";
+        return;
+    }
+
+    lua_rawgeti(state, LUA_REGISTRYINDEX, response->ref_index);
+    lua_pushstring(state, query.c_str());
+    for (auto param : params)
+        push_query_param(state, param);
+
+    int ret = lua_pcall(state, params.size() + 1, 1, 0);
+
+    if (ret) {
+        response->error = lua_tostring(state, -1);
+    } else if (lua_isuserdata(state, -1)) {
+        void *userdata = lua_touserdata(state, -1);
+        if (userdata == state)
+            response->timeout = true;
+        else if (userdata == &upstream_sentinel)
+            response->forward = true;
+        else {
+            response->error = "unknown userdata returned by function";
+        }
+    } else {
+        response2AmArg(state, response->parsed_value);
+    }
+
+    lua_gc(state, LUA_GCCOLLECT, 0);
+    lua_settop(state, 0);
+}
+
 std::optional<string> PostgreSqlProxy::handle_query(const string &query, const string &sender_id, const string &token,
                                                     const vector<AmArg> &params)
 {
@@ -638,43 +763,20 @@ std::optional<string> PostgreSqlProxy::handle_query(const string &query, const s
         return upstream_queue;
 
     if (response->ref_index) {
-        response->timeout = false;
-        response->error.clear();
-        response->parsed_value.clear();
-        response->value.clear();
+        run_lua_response(response, query, params);
 
-        if (!lua_checkstack(state, params.size() + 2)) {
-            auto *ev = new PGResponseError("failed to ensure lua stacksize", token);
+        if (response->forward) {
+            if (upstream_queue.empty()) {
+                auto *ev = new PGResponseError("no upstream", token);
 
-            if (log_pg_events)
-                DBG(pg_log::print_pg_event(ev).c_str());
+                if (log_pg_events)
+                    DBG(pg_log::print_pg_event(ev).c_str());
 
-            sessionContainer->postEvent(sender_id, ev);
-            return std::nullopt;
-        }
-
-        lua_rawgeti(state, LUA_REGISTRYINDEX, response->ref_index);
-        lua_pushstring(state, query.c_str());
-        for (auto param : params)
-            push_query_param(state, param);
-
-        int ret = lua_pcall(state, params.size() + 1, 1, 0);
-
-        if (ret) {
-            response->error = lua_tostring(state, -1);
-        } else if (lua_isuserdata(state, -1)) {
-            if (lua_touserdata(state, -1) == state)
-                response->timeout = true;
-            else {
-                response->error = "unknown userdata returned by function";
+                sessionContainer->postEvent(sender_id, ev);
+                return std::nullopt;
             }
-        } else {
-            response2AmArg(state, response->parsed_value);
+            return upstream_queue;
         }
-
-        lua_gc(state, LUA_GCCOLLECT, 0);
-        lua_settop(state, 0);
-
     } else if (!response->upstream_queue.empty()) {
         return response->upstream_queue;
     }
@@ -781,18 +883,22 @@ int PostgreSqlProxy::insert_resp_map(const string &query, const string &resp, co
     return 0;
 }
 
-int PostgreSqlProxy::insert_resp_lua(const string &query, const string &path)
+int PostgreSqlProxy::insert_resp_lua_chunk(const string &query, const string &chunk, bool is_file, string &error)
 {
-    if (luaL_loadfile(state, path.c_str())) {
-        ERROR("error lua script: `%s`", lua_isstring(state, -1) ? lua_tostring(state, -1) : "");
+    int load_ret = is_file ? luaL_loadfile(state, chunk.c_str()) : luaL_loadstring(state, chunk.c_str());
+    if (load_ret) {
+        error = format("error lua script: `{}`", lua_isstring(state, -1) ? lua_tostring(state, -1) : "");
+        lua_settop(state, 0);
         return 1;
     }
     int ret = lua_pcall(state, 0, 1, 0);
     if (ret) {
-        ERROR("lua script abort: `%s`", lua_isstring(state, -1) ? lua_tostring(state, -1) : "");
+        error = format("lua script abort: `{}`", lua_isstring(state, -1) ? lua_tostring(state, -1) : "");
+        lua_settop(state, 0);
         return 1;
     } else if (!lua_isfunction(state, -1)) {
-        ERROR("lua script `%s` has to return function", path.c_str());
+        error = format("lua script has to return function");
+        lua_settop(state, 0);
         return 1;
     }
 
@@ -804,6 +910,17 @@ int PostgreSqlProxy::insert_resp_lua(const string &query, const string &path)
     lua_settop(state, 0);
 
     insert_response(query, vector<AmArg>() /*params*/, response);
+
+    return 0;
+}
+
+int PostgreSqlProxy::insert_resp_lua(const string &query, const string &path)
+{
+    string error;
+    if (insert_resp_lua_chunk(query, path, true /*is_file*/, error)) {
+        ERROR("%s (script `%s`)", error.c_str(), path.c_str());
+        return 1;
+    }
 
     return 0;
 }
