@@ -1,3 +1,7 @@
+sems (1.204.2) stable; urgency=low
+  * postgresql_proxy: add map.insert_lua, request.execute and pgupstream lua sentinel
+ -- Michael Furmur <furmur@pm.me>  Wed, 12 Aug 2026 18:46:16 +0300
+
 sems (1.204.1) stable; urgency=low
   * event queues: fix deadlock in queue events dtor
  -- Michael Furmur <furmur@pm.me>  Mon, 10 Aug 2026 12:51:58 +0300
