@@ -68,7 +68,7 @@ void RegistrarClickhouse::on_timer()
         return;
     }
     struct tm snapshot_tm;
-    localtime_r(&snapshot_ts, &snapshot_tm);
+    gmtime_r(&snapshot_ts, &snapshot_tm);
     char strftime_buf[32];
     strftime(strftime_buf, sizeof strftime_buf, "%F %T", &snapshot_tm);
 
