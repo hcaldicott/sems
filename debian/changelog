@@ -1,3 +1,7 @@
+sems (1.204.3) stable; urgency=low
+  * postgresql_proxy: empty lua table -> empty struct in response2AmArg 
+ -- Michael Furmur <furmur@pm.me>  Thu, 13 Aug 2026 13:58:12 +0300
+
 sems (1.204.2) stable; urgency=low
   * postgresql_proxy: add map.insert_lua, request.execute and pgupstream lua sentinel
  -- Michael Furmur <furmur@pm.me>  Wed, 12 Aug 2026 18:46:16 +0300
