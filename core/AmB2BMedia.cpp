@@ -652,6 +652,8 @@ int StreamData::writeStream(unsigned long long ts, unsigned char *buffer, Stream
                             if (dtmf_queue && enable_dtmf_transcoding) {
                                 dtmf_queue->putDtmfAudio(dtmf_detected, buffer, tmp_got, ts);
                             }
+                            if (AmAudio *src_out = src.getOutput())
+                                src_out->put(ts, buffer, sample_rate, static_cast<unsigned int>(tmp_got));
                         }
                     }
                 }
@@ -687,6 +689,8 @@ int StreamData::writeStream(unsigned long long ts, unsigned char *buffer, Stream
                                     // got = src_stream->conceal_loss(PCM16_B2S(got),buffer);
                                 }
                             }
+                            if (AmAudio *src_out = src.getOutput())
+                                src_out->put(ts, buffer, sample_rate, static_cast<unsigned int>(got));
                         }
                     }
                 }

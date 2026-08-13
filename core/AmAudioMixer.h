@@ -50,12 +50,12 @@ class AmAudioMixerConnector;
 class AmAudioMixer {
     AmMultiPartyMixer mixer;
 
-    AmMutex                                         srcsink_mut;
+    // AmMutex                                         srcsink_mut;
     std::map<AmAudioMixerConnector *, unsigned int> sources;
 
-    unsigned int           sink_channel;
-    AmAudioMixerConnector *sink_connector;
-    std::set<AmAudio *>    sinks;
+    // unsigned int           sink_channel;
+    // AmAudioMixerConnector *sink_connector;
+    // std::set<AmAudio *>    sinks;
 
   public:
     AmAudioMixer(int external_sample_rate);
@@ -64,16 +64,16 @@ class AmAudioMixer {
     AmAudio *addSource(int external_sample_rate);
     void     releaseSource(AmAudio *s);
 
-    void addSink(AmAudio *s);
-    void releaseSink(AmAudio *s);
+    // void addSink(AmAudio *s);
+    // void releaseSink(AmAudio *s);
 };
 
 class AmAudioMixerConnector : public AmAudio {
-    AmMultiPartyMixer   &mixer;
-    unsigned int         channel;
-    AmMutex             *audio_mut;
-    std::set<AmAudio *> *sinks;
-    AmAudio             *mix_channel;
+    AmMultiPartyMixer &mixer;
+    unsigned int       channel;
+    // AmMutex             *audio_mut;
+    // std::set<AmAudio *> *sinks;
+    // AmAudio             *mix_channel;
 
   protected:
     int get(unsigned long long system_ts, unsigned char *buffer, int output_sample_rate, unsigned int nb_samples);
@@ -84,13 +84,13 @@ class AmAudioMixerConnector : public AmAudio {
     int write(unsigned int user_ts, unsigned int size) { return -1; }
 
   public:
-    AmAudioMixerConnector(AmMultiPartyMixer &mixer, unsigned int channel, AmAudio *mix_channel,
-                          AmMutex *audio_mut = NULL, std::set<AmAudio *> *sinks = NULL)
+    AmAudioMixerConnector(AmMultiPartyMixer &mixer, unsigned int channel/*, AmAudio *mix_channel,
+                          AmMutex *audio_mut = NULL, std::set<AmAudio *> *sinks = NULL*/)
         : mixer(mixer)
         , channel(channel)
-        , audio_mut(audio_mut)
-        , sinks(sinks)
-        , mix_channel(mix_channel)
+    //, audio_mut(audio_mut)
+    //, sinks(sinks)
+    //, mix_channel(mix_channel)
     {
     }
     ~AmAudioMixerConnector() {}
