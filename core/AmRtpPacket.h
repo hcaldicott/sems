@@ -64,6 +64,7 @@ class AmRtpPacketPool;
 class AmRtpPacket {
     friend class AmRtpPacketPool;
     AmRtpPacketPool *pool = nullptr;
+    int              pool_idx;
 
     unsigned char buffer[RTP_PACKET_BUF_SIZE];
     unsigned int  b_size;
@@ -162,8 +163,10 @@ class AmRtpPacketPool {
         , packets_count(count)
         , used(clearMask())
     {
-        for (int i = 0; i < packets_count; i++)
-            packets[i].pool = this;
+        for (int i = 0; i < packets_count; i++) {
+            packets[i].pool     = this;
+            packets[i].pool_idx = i;
+        }
     }
     AmRtpPacket *newPacket()
     {
@@ -178,13 +181,8 @@ class AmRtpPacketPool {
 
         return nullptr;
     }
-    void freePacket(AmRtpPacket *p)
+    void freePacket(int idx)
     {
-        if (!p)
-            return;
-
-        int idx = static_cast<int>(p - packets);
-
         assert(idx >= 0);
         assert(idx < packets_count);
 
@@ -202,7 +200,7 @@ class AmRtpPacketPool {
 inline void AmRtpPacket::release()
 {
     assert(pool);
-    pool->freePacket(this);
+    pool->freePacket(pool_idx);
 }
 
 /**
