@@ -1034,12 +1034,14 @@ void AmMediaEndpoint::onUdptlPacket(AmRtpPacket *p, AmMediaTransport *)
 
 void AmMediaEndpoint::onRawPacket(AmRtpPacket *p, AmMediaTransport *)
 {
-    clearRTPTimeout(&p->recv_time);
     AmRtpStream *s = streams.front();
-    if (!s->relay_raw)
+    if (!s->relay_raw) {
+        clearRTPTimeout(&p->recv_time);
         p->release();
-    else
-        s->bufferPacket(p);
+        return;
+    }
+
+    s->bufferPacket(p);
 }
 
 void AmMediaEndpoint::onLeavePassiveMode()
