@@ -393,5 +393,5 @@ void AmRtcpConnection::handleConnection(uint8_t *data, unsigned int size, struct
     p->setLocalAddr(&laddr);
     p->setBuffer(data, size);
     transport->onRtcpPacket(p, parent ? parent : this);
-    transport->getEndpoint()->freeRtpPacket(p);
+    p->release();
 }

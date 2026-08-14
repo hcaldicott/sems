@@ -954,12 +954,6 @@ AmRtpPacket *AmMediaEndpoint::createRtpPacket()
     return p;
 }
 
-void AmMediaEndpoint::freeRtpPacket(AmRtpPacket *packet)
-{
-    assert(packet);
-    mem.freePacket(packet);
-}
-
 void AmMediaEndpoint::onErrorRtpTransport(AmStreamConnection::ConnectionError err, const string &error,
                                           AmMediaTransport *t)
 {
@@ -999,7 +993,7 @@ void AmMediaEndpoint::onRtpPacket(AmRtpPacket *p, AmMediaTransport *t)
         error += (session ? session->getLocalTag() : string("no session")) + ")";
 
         onErrorRtpTransport(AmStreamConnection::RTP_PARSER_ERROR, error, t);
-        freeRtpPacket(p);
+        p->release();
     } else if (parse_res == RTP_PACKET_PARSE_OK) {
         AmRtpStream *s = getStream(p); // demux: the packet picks its member (primary for non-bundle / raw)
         s->bufferPacket(p);
@@ -1009,7 +1003,7 @@ void AmMediaEndpoint::onRtpPacket(AmRtpPacket *p, AmMediaTransport *t)
         CLASS_ERROR("error parsing: rtp packet is RTCP (src_addr: %s:%i, remote_addr: %s:%i, local_tag: %s)\n",
                     get_addr_str(&laddr).c_str(), am_get_port(&laddr), get_addr_str(&raddr).c_str(),
                     am_get_port(&raddr), session ? session->getLocalTag().c_str() : "no session");
-        freeRtpPacket(p);
+        p->release();
         return;
     }
 }
@@ -1034,7 +1028,7 @@ void AmMediaEndpoint::onUdptlPacket(AmRtpPacket *p, AmMediaTransport *)
     }
     AmLock l(s->receive_mut);
     if (!s->receive_buf.insert(AmRtpStream::ReceiveBuffer::value_type(p->timestamp, p)).second) {
-        mem.freePacket(p);
+        p->release();
     }
 }
 
@@ -1043,8 +1037,9 @@ void AmMediaEndpoint::onRawPacket(AmRtpPacket *p, AmMediaTransport *)
     clearRTPTimeout(&p->recv_time);
     AmRtpStream *s = streams.front();
     if (!s->relay_raw)
-        freeRtpPacket(p);
-    s->bufferPacket(p);
+        p->release();
+    else
+        s->bufferPacket(p);
 }
 
 void AmMediaEndpoint::onLeavePassiveMode()

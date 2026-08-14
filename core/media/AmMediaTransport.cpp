@@ -642,7 +642,7 @@ void AmMediaTransport::onRawPacket(AmRtpPacket *packet, AmStreamConnection *conn
 {
     if (mode == TRANSPORT_MODE_DEFAULT) {
         onPacket(packet->getBuffer(), packet->getBufferSize(), packet->saddr, packet->recv_time);
-        endpoint->freeRtpPacket(packet);
+        packet->release();
     } else if (mode == TRANSPORT_MODE_FAX || mode == TRANSPORT_MODE_DTLS_FAX) {
         setCurUdptlConn(conn);
         if (!media_establish) {

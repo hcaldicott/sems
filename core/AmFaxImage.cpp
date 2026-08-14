@@ -650,11 +650,11 @@ int FaxT38Image::readStreams(unsigned long long ts, unsigned char *buffer)
 
     if (udptl_rx_packet(m_udptl_state, rp->getBuffer(), rp->getBufferSize()) < 0) {
         FAX_DBG("incorrect udptl packet [pkt-size=%u]", rp->getBufferSize());
-        fax->getEndpoint()->freeRtpPacket(rp);
+        rp->release();
         return 0;
     }
 
-    fax->getEndpoint()->freeRtpPacket(rp);
+    rp->release();
     return 0;
 }
 

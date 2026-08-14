@@ -457,7 +457,7 @@ class AmRtpStream : public AmObject
     /** Try to reuse oldest buffered packet for newly coming packet */
     AmRtpPacket *reuseBufferedPacket();
     /** free buffered/queued packets via @owner's pool (the endpoint that received them) */
-    void flushReceiveBuffer(AmMediaEndpoint * owner);
+    void flushReceiveBuffer();
 
     void processRtcpTimers(unsigned long long system_ts, unsigned int user_ts);
 

@@ -196,7 +196,6 @@ class AmMediaEndpoint
     // --- inbound (sink) — called by AmMediaTransport ---
     AmRtpPacket *createRtpPacket();
     AmRtpPacket *reuseBufferedPacket();
-    void         freeRtpPacket(AmRtpPacket *p);
     void         clearRTPTimeout(struct timeval *recv_time);
     void         onErrorRtpTransport(AmStreamConnection::ConnectionError err, const string &error, AmMediaTransport *t);
     void         onRtpPacket(AmRtpPacket *p, AmMediaTransport *t);

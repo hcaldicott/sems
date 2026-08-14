@@ -582,21 +582,21 @@ int AmRtpStream::receive(unsigned char *buffer, unsigned int size)
     }
 
     if (!rp->getDataSize()) {
-        getEndpoint()->freeRtpPacket(rp);
+        rp->release();
         return RTP_EMPTY;
     }
 
     if (isLocalTelephoneEventPayload(rp->payload)) {
         if (!last_recv_relayed)
             recvDtmfPacket(rp);
-        getEndpoint()->freeRtpPacket(rp);
+        rp->release();
         return RTP_DTMF;
     }
 
     assert(rp->getData());
     if (rp->getDataSize() > size) {
         CLASS_ERROR("received too big RTP packet");
-        getEndpoint()->freeRtpPacket(rp);
+        rp->release();
         return RTP_BUFFER_SIZE;
     }
 
@@ -606,7 +606,7 @@ int AmRtpStream::receive(unsigned char *buffer, unsigned int size)
     last_recv_payload = rp->payload;
 
     int res = rp->getDataSize();
-    getEndpoint()->freeRtpPacket(rp);
+    rp->release();
     return res;
 }
 
@@ -618,7 +618,7 @@ void AmRtpStream::bufferPacket(AmRtpPacket *p)
     if (!receiving) {
         if (force_receive_dtmf && isLocalTelephoneEventPayload(p->payload))
             recvDtmfPacket(p);
-        getEndpoint()->freeRtpPacket(p);
+        p->release();
         return;
     }
 
@@ -652,20 +652,20 @@ void AmRtpStream::bufferPacket(AmRtpPacket *p)
                 if (force_buffering && p->relayed) {
                     receive_mut.lock();
                     if (!receive_buf.insert(ReceiveBuffer::value_type(p->timestamp, p)).second) {
-                        getEndpoint()->freeRtpPacket(p);
+                        p->release();
                     }
                     receive_mut.unlock();
                     return;
                 }
             }
-            getEndpoint()->freeRtpPacket(p);
+            p->release();
             return;
         }
     } // if(relay_enabled)
 
     // throw away ZRTP packets
     if (p->version != RTP_VERSION) {
-        getEndpoint()->freeRtpPacket(p);
+        p->release();
         return;
     }
 
@@ -683,7 +683,7 @@ void AmRtpStream::bufferPacket(AmRtpPacket *p)
     } else {
         if (!receive_buf.insert(ReceiveBuffer::value_type(p->timestamp, p)).second) {
             // insert failed
-            getEndpoint()->freeRtpPacket(p);
+            p->release();
         }
     }
     receive_mut.unlock();
@@ -1077,7 +1077,7 @@ void AmRtpStream::resume()
 
     clearRTPTimeout();
 
-    flushReceiveBuffer(getEndpoint());
+    flushReceiveBuffer();
 
     receiving = true;
 }
@@ -1231,16 +1231,14 @@ AmMediaEndpoint *AmRtpStream::getEndpoint() const
     return endpoint;
 }
 
-void AmRtpStream::flushReceiveBuffer(AmMediaEndpoint *owner)
+void AmRtpStream::flushReceiveBuffer()
 {
-    if (!owner)
-        return;
     receive_mut.lock();
     for (auto &it : receive_buf)
-        owner->freeRtpPacket(it.second);
+        it.second->release();
     receive_buf.clear();
     while (!rtp_ev_qu.empty()) {
-        owner->freeRtpPacket(rtp_ev_qu.front());
+        rtp_ev_qu.front()->release();
         rtp_ev_qu.pop();
     }
     receive_mut.unlock();
@@ -1252,7 +1250,10 @@ void AmRtpStream::setEndpoint(AmMediaEndpoint *ep)
         pending_endpoint = nullptr;
         return;
     }
-    flushReceiveBuffer(endpoint); // drain to the old pool before re-pointing
+    if (endpoint) {
+        endpoint->stopReceiving();
+    }
+    flushReceiveBuffer();
     endpoint = ep;
     if (ep)
         ep->addMember(this);
@@ -1263,7 +1264,8 @@ AmMediaEndpoint *AmRtpStream::releaseEndpoint()
 {
     AmMediaEndpoint *e = endpoint;
     if (e) {
-        flushReceiveBuffer(e); // drain to this pool before the endpoint is handed off
+        e->stopReceiving();
+        flushReceiveBuffer();
         e->removeMember(this);
     }
     endpoint = nullptr;

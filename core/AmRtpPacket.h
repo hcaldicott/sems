@@ -58,8 +58,13 @@ class msg_logger;
 //(70*365 + 17)*86400
 #define NTP_TIME_OFFSET 2208988800ULL
 
+class AmRtpPacketPool;
+
 /** \brief RTP packet implementation */
 class AmRtpPacket {
+    friend class AmRtpPacketPool;
+    AmRtpPacketPool *pool = nullptr;
+
     unsigned char buffer[RTP_PACKET_BUF_SIZE];
     unsigned int  b_size;
 
@@ -134,21 +139,31 @@ class AmRtpPacket {
     bool addHeaderExtension(uint8_t id, const unsigned char *value, uint8_t len);
     void clearHeaderExtensions() { pending_ext_count = 0; }
     bool getHeaderExtension(uint8_t id, unsigned char *out, size_t out_cap, size_t &out_len) const;
+
+    /** return the packet to its owner pool */
+    void release();
 };
 
 #define RTP_STREAM_BUF_PACKETS_COUNT 32
 
 /**
- * This provides the memory for the receive buffer (pool of AmRtpPacket).
+ * Receive-buffer pool logic over externally provided storage (see PacketMem).
  */
-template <int packets_count> class PacketMem {
-#define PacketMemUsedClearMask (~(ULONG_MAX >> (BITS_PER_LONG - packets_count)))
-    AmRtpPacket   packets[packets_count];
+class AmRtpPacketPool {
+    AmRtpPacket  *packets;
+    int           packets_count;
     unsigned long used; // used packets bitmask
+
+    unsigned long clearMask() const { return ~(ULONG_MAX >> (BITS_PER_LONG - packets_count)); }
+
   public:
-    PacketMem()
-        : used(PacketMemUsedClearMask)
+    AmRtpPacketPool(AmRtpPacket *storage, int count)
+        : packets(storage)
+        , packets_count(count)
+        , used(clearMask())
     {
+        for (int i = 0; i < packets_count; i++)
+            packets[i].pool = this;
     }
     AmRtpPacket *newPacket()
     {
@@ -168,7 +183,7 @@ template <int packets_count> class PacketMem {
         if (!p)
             return;
 
-        int idx = p - packets;
+        int idx = static_cast<int>(p - packets);
 
         assert(idx >= 0);
         assert(idx < packets_count);
@@ -178,10 +193,30 @@ template <int packets_count> class PacketMem {
     }
     void clear()
     {
-        used = PacketMemUsedClearMask;
+        used = clearMask();
         __sync_synchronize();
     }
     void debug() { DBG("used: 0x%lx", used); }
+};
+
+inline void AmRtpPacket::release()
+{
+    assert(pool);
+    pool->freePacket(this);
+}
+
+/**
+ * This provides the memory for the receive buffer (pool of AmRtpPacket).
+ */
+template <int N> class PacketMem : public AmRtpPacketPool {
+    static_assert(N <= BITS_PER_LONG, "used bitmask is a single unsigned long");
+    AmRtpPacket storage[N];
+
+  public:
+    PacketMem()
+        : AmRtpPacketPool(storage, N)
+    {
+    }
 };
 
 #endif
