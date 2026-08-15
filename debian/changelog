@@ -1,3 +1,8 @@
+sems (1.205.1) stable; urgency=low
+  * AmRtpPacket: remove default member initializer for pool
+    fixes pool value for release() 
+ -- Michael Furmur <furmur@pm.me>  Sat, 15 Aug 2026 18:10:37 +0300
+
 sems (1.205.0) stable; urgency=low
   * fix crash with RTP packets pool
  -- Michael Furmur <furmur@pm.me>  Fri, 14 Aug 2026 21:05:21 +0300
