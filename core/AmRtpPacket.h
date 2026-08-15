@@ -63,7 +63,7 @@ class AmRtpPacketPool;
 /** \brief RTP packet implementation */
 class AmRtpPacket {
     friend class AmRtpPacketPool;
-    AmRtpPacketPool *pool = nullptr;
+    AmRtpPacketPool *pool;
     int              pool_idx;
 
     unsigned char buffer[RTP_PACKET_BUF_SIZE];
