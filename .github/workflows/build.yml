@@ -22,7 +22,7 @@ jobs:
           curl https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
       - name: add yeti pkg repo
         run: >
-          echo "deb [arch=amd64] https://deb.yeti-switch.org/debian/1.15 ${{ matrix.distribution }} main" > /etc/apt/sources.list.d/yeti.list &&
+          echo "deb [arch=amd64] https://deb.yeti-switch.org/debian/build-1.15 ${{ matrix.distribution }} main" > /etc/apt/sources.list.d/yeti.list &&
           wget https://deb.yeti-switch.org/yeti.gpg -O /etc/apt/trusted.gpg.d/yeti-key.asc
       - run: apt update && apt install -y --no-install-recommends postgresql-18 postgresql-client-18 redis-server
 
@@ -56,4 +56,15 @@ jobs:
           s3_endpoint_url: ${{ secrets.DEB_AWS_ENDPOINT }}
           s3_codename: ${{ matrix.distribution }}
           s3_prefix: '1.15'
+        if: startsWith(github.ref, 'refs/tags/v')
+      - uses: yeti-switch/upload-debian-pkg-action@v2
+        with:
+          pkgs: '../{libsems,sems-modules-base,sems-dev-utils}*.deb'
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg_passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          s3_access_key_id: ${{ secrets.DEB_AWS_ACCESS_KEY_ID }}
+          s3_secret_access_key: ${{ secrets.DEB_AWS_SECRET_ACCESS_KEY }}
+          s3_endpoint_url: ${{ secrets.DEB_AWS_ENDPOINT }}
+          s3_codename: ${{ matrix.distribution }}
+          s3_prefix: 'build-1.15'
         if: startsWith(github.ref, 'refs/tags/v')
