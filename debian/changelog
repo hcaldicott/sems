@@ -1,3 +1,7 @@
+sems (1.206.0) stable; urgency=low
+  * DirectAppTimer: add new callback function onTimerUnsafe
+ -- Michael Furmur <furmur@pm.me>  Mon, 24 Aug 2026 13:43:03 +0300
+
 sems (1.205.1) stable; urgency=low
   * AmRtpPacket: remove default member initializer for pool
     fixes pool value for release() 
