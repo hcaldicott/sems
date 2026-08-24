@@ -31,6 +31,7 @@ class ReuseTimer : public DirectAppTimer {
     {
     }
 
+    bool onTimerUnsafe() override { return true; }
     void onTimer() override;
 };
 

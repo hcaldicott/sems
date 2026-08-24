@@ -30,7 +30,15 @@ class DirectAppTimer {
     void invalidate_timer_unsafe();
     void on_direct_timer_fired(direct_timer *fired_timer);
 
-    virtual void onTimer() = 0;
+    /* called under the timer mutex: the owner is guaranteed alive.
+     * must not call set()/clear() on this timer: self-deadlock.
+     * return value: whether to call onTimer() after unlock */
+    virtual bool onTimerUnsafe() { return false; }
+
+    /* called after unlock if onTimerUnsafe() returned true.
+     * set()/clear() are allowed here, but the owner may already be
+     * destroyed: the subclass must guarantee its lifetime itself */
+    virtual void onTimer() {}
 
   public:
     DirectAppTimer();

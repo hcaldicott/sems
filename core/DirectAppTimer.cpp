@@ -78,10 +78,13 @@ void DirectAppTimer::on_direct_timer_fired(direct_timer *fired_timer)
 
     invalidate_timer_unsafe();
 
+    bool call_post_unlock_hook = onTimerUnsafe();
+
     // locked in direct_timer::fire()
     mutex->unlock();
 
-    onTimer();
+    if (call_post_unlock_hook)
+        onTimer();
 }
 
 void DirectAppTimer::set(double timeout)

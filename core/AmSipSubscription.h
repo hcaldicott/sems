@@ -78,7 +78,11 @@ class SingleSubscription {
             , timer_id(timer_id)
         {
         }
-        void onTimer() { sub->onTimer(timer_id); }
+        bool onTimerUnsafe() override
+        {
+            sub->onTimer(timer_id);
+            return false;
+        }
     };
 
     enum SubscriptionTimerId { RFC6665_TIMER_N = 0, SUBSCRIPTION_EXPIRE };
