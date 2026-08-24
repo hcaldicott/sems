@@ -37,43 +37,42 @@
 class AmAudioMixerConnector;
 
 /**
- * \brief \ref AmAudio to mix input
+ * \brief N-way audio mixer exposed as a set of \ref AmAudio devices
  *
- * AmAudio that mixes some sources' audio and writes into a set of sinks.
+ * AmAudioMixer wraps an \ref AmMultiPartyMixer and hands out one
+ * \ref AmAudioMixerConnector per participant via addSource(). Every connector
+ * is a plain AmAudio device that can be plugged wherever an AmAudio is
+ * expected (session input/output, playlist, audio queue, ...).
  *
- * Can probably do lots of things together with AmAudioQueue and/or AmAudioMixIn.
+ * Everything written to a connector is fed into that connector's mixer
+ * channel; everything read from it is the mix of all the *other* channels,
+ * i.e. a participant never hears itself back.
  *
- * Attention: Sources (in fact AmAudioMixerConnector) are owned by the AmAudioMixer,
- *            i.e. deleted on releaseSink/destructor.
- *            Sinks are not owned by the AmAudioMixer.
+ * The connectors resample between the rate of the AmAudio side and the rate
+ * the mixer currently runs at (the highest rate of all registered channels),
+ * so channels with different sample rates may be mixed together.
+ *
+ * The mixer owns its connectors: they are created by addSource(), destroyed
+ * by releaseSource(), and any remaining ones are destroyed together with the
+ * mixer. AmAudioMixer itself does no locking, so adding/releasing channels has
+ * to be serialized by the caller (the mixing itself is protected by
+ * AmMultiPartyMixer).
  */
 class AmAudioMixer {
-    AmMultiPartyMixer mixer;
-
-    // AmMutex                                         srcsink_mut;
-    std::map<AmAudioMixerConnector *, unsigned int> sources;
-
-    // unsigned int           sink_channel;
-    // AmAudioMixerConnector *sink_connector;
-    // std::set<AmAudio *>    sinks;
+    AmMultiPartyMixer                               mixer;
+    std::map<AmAudioMixerConnector *, unsigned int> channels;
 
   public:
     AmAudioMixer(int external_sample_rate);
     ~AmAudioMixer();
 
-    AmAudio *addSource(int external_sample_rate);
-    void     releaseSource(AmAudio *s);
-
-    // void addSink(AmAudio *s);
-    // void releaseSink(AmAudio *s);
+    AmAudio *addChannel(int external_sample_rate);
+    void     releaseChannel(AmAudio *s);
 };
 
 class AmAudioMixerConnector : public AmAudio {
     AmMultiPartyMixer &mixer;
     unsigned int       channel;
-    // AmMutex             *audio_mut;
-    // std::set<AmAudio *> *sinks;
-    // AmAudio             *mix_channel;
 
   protected:
     int get(unsigned long long system_ts, unsigned char *buffer, int output_sample_rate, unsigned int nb_samples);
@@ -84,13 +83,9 @@ class AmAudioMixerConnector : public AmAudio {
     int write(unsigned int user_ts, unsigned int size) { return -1; }
 
   public:
-    AmAudioMixerConnector(AmMultiPartyMixer &mixer, unsigned int channel/*, AmAudio *mix_channel,
-                          AmMutex *audio_mut = NULL, std::set<AmAudio *> *sinks = NULL*/)
+    AmAudioMixerConnector(AmMultiPartyMixer &mixer, unsigned int channel)
         : mixer(mixer)
         , channel(channel)
-    //, audio_mut(audio_mut)
-    //, sinks(sinks)
-    //, mix_channel(mix_channel)
     {
     }
     ~AmAudioMixerConnector() {}

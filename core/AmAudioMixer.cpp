@@ -27,72 +27,41 @@
 
 #include "AmAudioMixer.h"
 
-AmAudioMixer::AmAudioMixer(int external_sample_rate)
-{
-    // sink_channel   = mixer.addChannel(external_sample_rate);
-    // sink_connector = new AmAudioMixerConnector(mixer, sink_channel, NULL, &srcsink_mut, &sinks);
-}
+AmAudioMixer::AmAudioMixer(int external_sample_rate) {}
 
 AmAudioMixer::~AmAudioMixer()
 {
-    // mixer.removeChannel(sink_channel);
-    for (std::map<AmAudioMixerConnector *, unsigned int>::iterator it = sources.begin(); it != sources.end(); it++) {
+    for (std::map<AmAudioMixerConnector *, unsigned int>::iterator it = channels.begin(); it != channels.end(); it++) {
         mixer.removeChannel(it->second);
         delete it->first;
     }
-    // delete sink_connector;
 }
 
-AmAudio *AmAudioMixer::addSource(int external_sample_rate)
+AmAudio *AmAudioMixer::addChannel(int external_sample_rate)
 {
-    // srcsink_mut.lock();
     unsigned int src_channel = mixer.addChannel(external_sample_rate);
     // the first source will process the media in the mixer channel
-    AmAudioMixerConnector *conn =
-        new AmAudioMixerConnector(mixer, src_channel /*, sources.empty() ? sink_connector : NULL*/);
-    sources[conn] = src_channel;
-    // srcsink_mut.unlock();
+    AmAudioMixerConnector *conn = new AmAudioMixerConnector(mixer, src_channel);
+    channels[conn]              = src_channel;
     return conn;
 }
 
-void AmAudioMixer::releaseSource(AmAudio *s)
+void AmAudioMixer::releaseChannel(AmAudio *s)
 {
     // srcsink_mut.lock();
-    std::map<AmAudioMixerConnector *, unsigned int>::iterator it = sources.find((AmAudioMixerConnector *)s);
-    if (it == sources.end()) {
-        // srcsink_mut.unlock();
+    std::map<AmAudioMixerConnector *, unsigned int>::iterator it = channels.find((AmAudioMixerConnector *)s);
+    if (it == channels.end()) {
         ERROR("source [%p] is not part of this mixer.", s);
         return;
     }
     mixer.removeChannel(it->second);
     delete s;
-    sources.erase(it);
-    // srcsink_mut.unlock();
+    channels.erase(it);
 }
-/*
-void AmAudioMixer::addSink(AmAudio *s)
-{
-    srcsink_mut.lock();
-    sinks.insert(s);
-    srcsink_mut.unlock();
-}
-
-void AmAudioMixer::releaseSink(AmAudio *s)
-{
-    srcsink_mut.lock();
-    sinks.erase(s);
-    srcsink_mut.unlock();
-}
-*/
 
 int AmAudioMixerConnector::get(unsigned long long system_ts, unsigned char *buffer, int output_sample_rate,
                                unsigned int nb_samples)
 {
-    // in fact GCP here only needed for the mixed channel
-    // unsigned int mixer_sample_rate;
-    // mixer.GetChannelPacket(channel, system_ts, buffer, nb_samples, mixer_sample_rate);
-
-
     int mixer_rate = mixer.GetCurrentSampleRate();
     if (mixer_rate <= 0 || output_sample_rate <= 0)
         return 0;
@@ -122,31 +91,20 @@ int AmAudioMixerConnector::get(unsigned long long system_ts, unsigned char *buff
 
     // CLASS_DBG("get, GCP: got_sample_rate %d, size %u", got_sample_rate, size);
 
-
-    /*if ((audio_mut != NULL) && (sinks != NULL)) {
-        audio_mut->lock();
-        // write to all sinks
-        for (std::set<AmAudio *>::iterator it = sinks->begin(); it != sinks->end(); it++) {
-            (*it)->put(system_ts, buffer, output_sample_rate, nb_samples);
-            //(*it)->put(system_ts, buffer, static_cast<int>(got_sample_rate), size);
-        }
-        audio_mut->unlock();
-    }*/
-
     // resampled in place: the caller's buffer is AUDIO_BUFFER_SIZE and nb_samples fit it
-    size = resampleOutput(buffer, size, static_cast<int>(got_sample_rate), output_sample_rate);
-
+    if (static_cast<int>(got_sample_rate) != output_sample_rate) {
+        // unsigned int get_size = size;
+        size = resampleOutput(buffer, size, static_cast<int>(got_sample_rate), output_sample_rate);
+        // CLASS_DBG("get, resample: get_size %u, size %u", get_size, size);
+    }
     // CLASS_DBG("get, resample: size %u", size);
 
     return static_cast<int>(size);
-    // return nb_samples;
 }
 
 int AmAudioMixerConnector::put(unsigned long long system_ts, unsigned char *buffer, int input_sample_rate,
                                unsigned int size)
 {
-    // mixer.PutChannelPacket(channel, system_ts, buffer, size);
-
     int mixer_rate = mixer.GetCurrentSampleRate();
     if (mixer_rate <= 0 || input_sample_rate <= 0 || !size)
         return 0;
@@ -176,7 +134,7 @@ int AmAudioMixerConnector::put(unsigned long long system_ts, unsigned char *buff
         if (!put_size)
             return static_cast<int>(size);
 
-        CLASS_DBG("put, resample: put_size %u, size %u", put_size, size);
+        // CLASS_DBG("put, resample: put_size %u, size %u", put_size, size);
     }
 
     if (put_size > AUDIO_BUFFER_SIZE) {
@@ -186,13 +144,5 @@ int AmAudioMixerConnector::put(unsigned long long system_ts, unsigned char *buff
 
     mixer.PutChannelPacket(channel, system_ts, put_buf, put_size);
 
-    /*if (mix_channel != NULL) {
-        // we are processing the media of the mixed channel as well
-        ShortSample mix_buffer[SIZE_MIX_BUFFER];
-        mix_channel->get(system_ts, (unsigned char *)mix_buffer, input_sample_rate, size);
-        // mix_channel->get(system_ts, (unsigned char *)mix_buffer, mixer_rate, PCM16_B2S(put_size));
-    }*/
-
     return static_cast<int>(size);
-    // return size;
 }
