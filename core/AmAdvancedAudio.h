@@ -54,51 +54,6 @@ struct AudioQueueEntry {
 };
 
 /**
- * \brief Holds AmAudios and reads/writes through all
- *
- * AmAudioQueue can hold AmAudios in input and output queue.
- * Audio will be read through the whole output queue,
- * and written through the whole input queue.
- */
-
-class AmAudioQueue : public AmAudio {
-
-    AmMutex                    inputQueue_mut;
-    std::list<AudioQueueEntry> inputQueue;
-    AmMutex                    outputQueue_mut;
-    std::list<AudioQueueEntry> outputQueue;
-
-    bool owning;
-
-  public:
-    AmAudioQueue();
-    ~AmAudioQueue();
-
-    enum QueueType { OutputQueue, InputQueue };
-    enum Pos { Front, Back };
-
-    /** add an audio to a queue */
-    void pushAudio(AmAudio *audio, QueueType type, Pos pos, bool write, bool read);
-    /** pop an audio from queue and delete it @return 0 on success, -1 on failure */
-    int popAudio(QueueType type, Pos pos);
-    /** pop an audio from queue @return pointer to the audio */
-    AmAudio *popAndGetAudio(QueueType type, Pos pos);
-    /** this removes the audio if it is in on of the queues and does not
-        delete them */
-    int  removeAudio(AmAudio *audio);
-    void setOwning(bool _owning);
-
-    /** AmAudio interface */
-    int get(unsigned long long system_ts, unsigned char *buffer, int output_sample_rate, unsigned int nb_samples);
-    int put(unsigned long long system_ts, unsigned char *buffer, int input_sample_rate, unsigned int size);
-
-  protected:
-    /** Fake implementation to satifsy AmAudio */
-    int write(unsigned int user_ts, unsigned int size) { return 0; }
-    int read(unsigned int user_ts, unsigned int size) { return 0; }
-};
-
-/**
  * \brief AmAudio device with a playlist and a background AmAudio
  *
  * AmAudioFrontlist is an AmAudio device, that has a playlist

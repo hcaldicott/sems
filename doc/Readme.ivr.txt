@@ -187,13 +187,6 @@ class IvrUAC:
       def dialout(str user, str app_name, str r_uri, 
 		       str from, str from_uri, str to)
 
-# see AmAudioMixIn.h
-class IvrAudioMixIn: 
-      #
-      # initialize with two audio devices, interval s, mixing level l, and 
-      # the finish_b_while_mixing flag (optional, default false)
-      def init(IvrAudio audio_a, IvrAudio audio_b, int s, double l [, int finish])
-
 class AmAudioFile:
       #"open the audio file"
       def open(str filename, int open_mode [, bool is_tmp])

@@ -64,9 +64,6 @@
  * jukecall (\ref ModuleDoc_jukecall) does a b2bua call to the callee with SEMS in the
  * media path, to be able to play a file into the call when the caller presses a 
  * button. This demonstrates how to use the so called b2abua session type. 
- *
- * mixin_announce (\ref ModuleDoc_mixin_announce) periodically mixes a second file into an
- * announcement played, an example on how to use AmAudioMixIn.
  * 
  * simple_conference (\ref ModuleDoc_simple_conference) and pinauthconference 
  * (\ref ModuleDoc_pinauthconference) are simpler versions of the conference plugin, which are good
@@ -148,14 +145,6 @@
 /*! \page ModuleDoc_jukecall Module Documentation: jukecall Application 
  *  \section Readme_jukecall Readme file
  *  \verbinclude Readme.jukecall
- *  
- *  \section Links
- *  Back to \ref AppDoc, to \ref AppDocExample.
- */
-
-/*! \page ModuleDoc_mixin_announce Module Documentation: mixin_announce Application 
- *  \section Readme_mixin_announce Readme file
- *  \verbinclude Readme.mixin_announce
  *  
  *  \section Links
  *  Back to \ref AppDoc, to \ref AppDocExample.
