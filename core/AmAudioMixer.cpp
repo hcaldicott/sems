@@ -42,20 +42,23 @@ AmAudio *AmAudioMixer::addChannel(int external_sample_rate)
     unsigned int src_channel = mixer.addChannel(external_sample_rate);
     // the first source will process the media in the mixer channel
     AmAudioMixerConnector *conn = new AmAudioMixerConnector(mixer, src_channel);
-    channels[conn]              = src_channel;
+
+    AmLock l(channels_mut);
+    channels[conn] = src_channel;
     return conn;
 }
 
 void AmAudioMixer::releaseChannel(AmAudio *s)
 {
-    // srcsink_mut.lock();
-    std::map<AmAudioMixerConnector *, unsigned int>::iterator it = channels.find((AmAudioMixerConnector *)s);
+    AmLock l(channels_mut);
+
+    auto it = channels.find(static_cast<AmAudioMixerConnector *>(s));
     if (it == channels.end()) {
-        ERROR("source [%p] is not part of this mixer.", s);
+        ERROR("source [%p] is not part of this mixer.", static_cast<void *>(s));
         return;
     }
     mixer.removeChannel(it->second);
-    delete s;
+    delete it->first;
     channels.erase(it);
 }
 

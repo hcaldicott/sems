@@ -52,14 +52,15 @@ class AmAudioMixerConnector;
  * the mixer currently runs at (the highest rate of all registered channels),
  * so channels with different sample rates may be mixed together.
  *
- * The mixer owns its connectors: they are created by addSource(), destroyed
- * by releaseSource(), and any remaining ones are destroyed together with the
- * mixer. AmAudioMixer itself does no locking, so adding/releasing channels has
- * to be serialized by the caller (the mixing itself is protected by
- * AmMultiPartyMixer).
+ * The mixer owns its connectors: they are created by addChannel(), destroyed
+ * by releaseChannel(), and any remaining ones are destroyed together with the
+ * mixer. addChannel()/releaseChannel() may be called concurrently from
+ * different threads (the mixing itself is protected by AmMultiPartyMixer).
+ * Releasing a connector that is still wired somewhere is the caller's problem.
  */
 class AmAudioMixer {
     AmMultiPartyMixer                               mixer;
+    AmMutex                                         channels_mut;
     std::map<AmAudioMixerConnector *, unsigned int> channels;
 
   public:
