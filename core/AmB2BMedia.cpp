@@ -949,11 +949,21 @@ void AmB2BMedia::clearAudio()
         b->postEvent(new B2BEvent(B2BClearMedia));
 }
 
-void AmB2BMedia::clearAudio(bool a_leg)
+void AmB2BMedia::clearAudio(AmB2BSession *s)
+{
+    AmLock lock(mutex);
+
+    // the leg is looked up by identity, not by the session's current a_leg:
+    // the role may have changed since registration, or the session may sit in both slots
+    if (a == s)
+        clearAudioUnsafe(true);
+    if (b == s)
+        clearAudioUnsafe(false);
+}
+
+void AmB2BMedia::clearAudioUnsafe(bool a_leg)
 {
     TRACE("[%p] clear %s leg audio\n", static_cast<void *>(this), a_leg ? "A" : "B");
-
-    AmLock lock(mutex);
 
     forEachPair([&](StreamPair &pair) {
         // remove streams from AmRtpReceiver first! (always both?)
@@ -1402,10 +1412,10 @@ void AmB2BMedia::updateStreamsUnsafe(bool a_leg, RelayController *ctrl, bool sdp
     TRACE("streams updated with SDP");
 }
 
-void AmB2BMedia::stop(bool a_leg)
+void AmB2BMedia::stop(AmB2BSession *s)
 {
-    TRACE("stop %s leg\n", a_leg ? "A" : "B");
-    clearAudio(a_leg);
+    TRACE("stop session %p\n", static_cast<void *>(s));
+    clearAudio(s);
     // remove from processor only if both A and B leg stopped
     if ((!a) && (!b)) {
         AmMediaProcessor::instance()->removeSession(this);

@@ -376,7 +376,7 @@ void AmB2BSession::onB2BEvent(B2BEvent *ev)
     case B2BClearMedia:
         DBG("clear media");
         if (media_session)
-            media_session->clearAudio(a_leg);
+            media_session->clearAudio(this);
         break;
     } // switch(ev->event_id)
 
@@ -1116,7 +1116,7 @@ void AmB2BSession::clearRtpReceiverRelay()
     case RTP_Relay:
     case RTP_Transcoding:
         if (media_session) {
-            media_session->stop(a_leg);
+            media_session->stop(this);
             media_session->releaseReference();
             media_session = NULL;
         }

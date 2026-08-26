@@ -456,6 +456,7 @@ class AmB2BMedia : public AmMediaSession
 
     void setMuteFlag(bool a_leg, bool set);
     void changeSessionUnsafe(bool a_leg, AmB2BSession *new_session);
+    void clearAudioUnsafe(bool a_leg);
 
     msg_logger   *logger;  // log RTP traffic
     SSLKeyLogger *sklfile; // log secure keys
@@ -534,11 +535,12 @@ class AmB2BMedia : public AmMediaSession
                              bool sdp_offer_owner);
     void updateStreams(bool a_leg, RelayController *ctrl, bool sdp_offer_owner);
 
-    /** Clear audio for given leg and stop processing if both legs stopped.
+    /** Detach the session from every leg it occupies (role-independent) and stop
+     * processing if both legs are gone.
      *
      * Releases all RTP streams and removes itself from media processor if still
      * there. */
-    void stop(bool a_leg);
+    void stop(AmB2BSession * s);
 
     // ---- AmMediaSession interface for processing audio in a standard way ----
 
@@ -572,8 +574,8 @@ class AmB2BMedia : public AmMediaSession
      * information will be rlready eleased. */
     virtual void clearAudio() override;
 
-    /** release RTP streams for one leg */
-    void clearAudio(bool a_leg);
+    /** release RTP streams of every leg the session occupies */
+    void clearAudio(AmB2BSession * s);
 
     /** Clear RTP timeout of all streams in both call legs. */
     virtual void clearRTPTimeout() override;
