@@ -1,3 +1,12 @@
+sems (1.207.0) stable; urgency=low
+  * AmB2BMedia: fix crash on clearAudio 
+ -- Michael Furmur <furmur@pm.me>  Wed, 26 Aug 2026 20:22:09 +0300
+
+sems (1.206.0) stable; urgency=low
+  * DirectAppTimer: add new callback function onTimerUnsafe
+ -- Michael Furmur <furmur@pm.me>  Mon, 24 Aug 2026 13:43:03 +0300
+
+
 sems (1.206.0) stable; urgency=low
   * DirectAppTimer: add new callback function onTimerUnsafe
  -- Michael Furmur <furmur@pm.me>  Mon, 24 Aug 2026 13:43:03 +0300
