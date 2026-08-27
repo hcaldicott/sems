@@ -1,3 +1,7 @@
+sems (1.208.0) stable; urgency=low
+  * media: advertise interface public-address in ICE candidates and a=rtcp
+ -- Michael Furmur <furmur@pm.me>  Thu, 27 Aug 2026 17:10:14 +0300
+
 sems (1.207.0) stable; urgency=low
   * AmB2BMedia: fix crash on clearAudio 
  -- Michael Furmur <furmur@pm.me>  Wed, 26 Aug 2026 20:22:09 +0300
