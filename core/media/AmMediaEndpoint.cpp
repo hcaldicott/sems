@@ -236,10 +236,7 @@ std::string AmMediaEndpoint::getLocalAddress()
     if (!cur_rtp_trans || !cur_rtcp_trans)
         setLocalIP();
 
-    string &host = AmConfig.media_ifs[l_if].proto_info[cur_rtp_trans->getLocalProtoId()]->getAdvertisedHost();
-    if (host.empty())
-        return cur_rtp_trans->getLocalIP();
-    return host;
+    return cur_rtp_trans->getLocalAddress();
 }
 
 int AmMediaEndpoint::getLocalPort()

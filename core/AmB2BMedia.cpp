@@ -1139,7 +1139,7 @@ void AmB2BMedia::replaceConnectionAddress(AmSdp &parser_sdp, bool a_leg, Address
                         stream->getEndpoint()->setLocalIP(addr_type);
                         public_address = stream->getEndpoint()->getLocalAddress();
                         me.port        = static_cast<unsigned int>(stream->getEndpoint()->getLocalPort());
-                        replaceRtcpAttr(me, stream->getEndpoint()->getLocalIP(),
+                        replaceRtcpAttr(me, stream->getEndpoint()->getLocalAddress(),
                                         stream->getEndpoint()->getLocalRtcpPort());
 
                         if (!replaced_ports.empty())

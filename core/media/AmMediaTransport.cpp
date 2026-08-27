@@ -231,6 +231,12 @@ string AmMediaTransport::getLocalIP()
     return am_inet_ntop(&l_saddr);
 }
 
+string AmMediaTransport::getLocalAddress()
+{
+    const string &host = AmConfig.media_ifs[l_if].proto_info[lproto_id]->getAdvertisedHost();
+    return host.empty() ? getLocalIP() : host;
+}
+
 unsigned short AmMediaTransport::getLocalPort()
 {
     return l_port;
@@ -555,7 +561,7 @@ void AmMediaTransport::prepareIceCandidate(SdpIceCandidate &candidate)
     candidate.conn.network  = NT_IN;
     candidate.comp_id       = getComponentId();
     candidate.conn.addrType = (l_saddr.ss_family == AF_INET) ? AT_V4 : AT_V6;
-    candidate.conn.address  = am_inet_ntop(&l_saddr);
+    candidate.conn.address  = getLocalAddress();
     candidate.conn.port     = l_port;
 
     auto &ice_cred = conn_factory.ice_cred;

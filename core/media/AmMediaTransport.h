@@ -145,6 +145,8 @@ class AmMediaTransport : public AmMediaConnectionsHolder,
      * @param out local RTP ip.
      */
     string getLocalIP();
+    /** address to advertise in SDP: interface domain/public-address if set, local IP otherwise */
+    string getLocalAddress();
 
     /**
      * Gets RTP local port.
