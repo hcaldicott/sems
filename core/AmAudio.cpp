@@ -38,11 +38,12 @@
 #include <string.h>
 #include <assert.h>
 
-void adjust_media_frame_size(int &frame_size)
-{
-#define MEDIA_FRAME_SIZE_MAX      200
+#define MEDIA_FRAME_SIZE_MAX      (PCM16_B2S(AUDIO_BUFFER_SIZE) * 1000 / SYSTEM_SAMPLECLOCK_RATE / 10 * 10) // 120
 #define MEDIA_FRAME_SIZE_MIN      10
 #define MEDIA_FRAME_SIZE_FAILOVER 20
+
+void adjust_media_frame_size(int &frame_size)
+{
     if (frame_size < MEDIA_FRAME_SIZE_MIN || frame_size > MEDIA_FRAME_SIZE_MAX || frame_size % 10 != 0) {
         frame_size = MEDIA_FRAME_SIZE_FAILOVER;
     }
