@@ -498,7 +498,7 @@ void AmB2BSession::updateLocalSdp(AmSdp &sdp, const string &, unsigned int)
         // which may differ from the family of the signaling transport
         AddressType offer_atype = AT_NONE;
         for (const auto &m : dlg->getRemoteSdp().media) {
-            if (!m.conn.address.empty()) {
+            if (m.type == MT_AUDIO && m.port && !m.conn.address.empty()) {
                 offer_atype = m.conn.addrType;
                 break;
             }
