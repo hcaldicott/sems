@@ -492,6 +492,32 @@ void AmB2BSession::updateLocalSdp(AmSdp &sdp, const string &, unsigned int)
     }
 
     auto atype = dlg->getOutboundAddrType();
+
+    if (dlg->getOAState() == AmOfferAnswer::OA_OfferRecved) {
+        // RFC 6157: the answer must use the address family of the offer,
+        // which may differ from the family of the signaling transport
+        AddressType offer_atype = AT_NONE;
+        for (const auto &m : dlg->getRemoteSdp().media) {
+            if (!m.conn.address.empty()) {
+                offer_atype = m.conn.addrType;
+                break;
+            }
+        }
+        if (offer_atype == AT_NONE)
+            offer_atype = dlg->getRemoteSdp().conn.addrType;
+
+        if ((offer_atype == AT_V4 || offer_atype == AT_V6) && offer_atype != atype) {
+            int rtp_if = getRtpInterface();
+            if (AmConfig.media_ifs[static_cast<size_t>(rtp_if)].findProto(offer_atype, MEDIA_info::RTP) >= 0) {
+                atype = offer_atype;
+            } else {
+                WARN("media interface %d has no %s proto to match the offer address family, "
+                     "answering with %s (local_tag '%s')",
+                     rtp_if, addr_t_2_str(offer_atype).c_str(), addr_t_2_str(atype).c_str(), getLocalTag().c_str());
+            }
+        }
+    }
+
     media_session->replaceConnectionAddress(sdp, a_leg, atype);
 }
 
