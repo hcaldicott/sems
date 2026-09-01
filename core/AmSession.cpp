@@ -392,6 +392,14 @@ void AmSession::setContactUser(const string &user)
 
 void AmSession::setRtpFrameSize(unsigned int frame_size)
 {
+    if (frame_size) {
+        int adjusted = static_cast<int>(frame_size);
+        adjust_media_frame_size(adjusted);
+        if (static_cast<unsigned int>(adjusted) != frame_size) {
+            frame_size = static_cast<unsigned int>(adjusted);
+        }
+    }
+
     DBG("AmSession::setRtpFrameSize(%u)", frame_size);
     override_frame_size = frame_size;
 }
