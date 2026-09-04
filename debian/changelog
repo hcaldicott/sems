@@ -1,3 +1,9 @@
+sems (1.209.0) stable; urgency=low
+  * fix segfault on audio buffer overflow. set max media frame size to 120
+  * AmB2BSession: follow offer address family in SDP answer
+  * add AmAudioMultiWriter. cleanup audio mixers code
+ -- Michael Furmur <furmur@pm.me>  Fri, 04 Sep 2026 16:29:09 +0300
+
 sems (1.208.1) stable; urgency=low
   * AmB2BSession: disable transparent RTP SSRC/SEQNO relay by default
  -- Michael Furmur <furmur@pm.me>  Fri, 28 Aug 2026 19:57:26 +0300
